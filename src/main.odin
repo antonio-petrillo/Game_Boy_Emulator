@@ -7,7 +7,7 @@ main :: proc() {
 	context.logger = log.create_console_logger()
 	defer log.destroy_console_logger(context.logger)
 
-	log_file, create_file_err := os.create("../log.txt")
+	log_file, create_file_err := os.create("../out/log.txt")
 	assert(create_file_err == nil)
 	defer os.close(log_file)
 

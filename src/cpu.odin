@@ -60,22 +60,22 @@ fetch_u16 :: proc(cpu: ^CPU_LR3590) -> u16 {
 cpu_step :: proc(cpu: ^CPU_LR3590) {
 	opcode := fetch_u8(cpu)
 	instr := INSTRUCTIONS_TABLE[opcode]
+	cpu.t_cycles += instr.t_cycles
 
 	switch kind in instr.kind {
 	case NOP_Instruction:
-		cpu.t_cycles += kind.t_cycles
 	case Jump_Instruction:
 		unconditional_jump(cpu, kind.arg)
-		cpu.t_cycles += kind.t_cycles
 	case Conditional_Jump_Instruction:
 		jump_to_else := conditional_jump(cpu, kind.cond, kind.arg)
-		cpu.t_cycles += jump_to_else ? kind.t_cycles1 : kind.t_cycles2
+		if jump_to_else {
+			cpu.t_cycles -= instr.t_cycles
+			cpu.t_cycles += kind.alt_t_cycles
+		}
 	case Load_16_Instruction:
 		load_16(cpu, kind)
-		cpu.t_cycles += kind.t_cycles
 	case Load_R8_R8:
 		load_r8_r8(cpu, kind)
-		cpu.t_cycles += kind.t_cycles
 	}
 
 	when ODIN_DEBUG {
