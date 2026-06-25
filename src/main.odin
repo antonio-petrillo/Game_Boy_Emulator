@@ -1,5 +1,7 @@
 package main
 
+DEBUG_INSTR :: #config(DEBUG_INSTR, false)
+
 import "core:log"
 import "core:os"
 
@@ -43,6 +45,6 @@ main :: proc() {
 
 	dump_cpu_to_file(cpu, log_file)
 
-	for i in 0..<10 do cpu_step(cpu)
+	for i in 0..<20000 do cpu_step(cpu)
 
 }

@@ -12,7 +12,7 @@ Bus :: struct {
 }
 
 bus_read_u8 :: proc(bus: ^Bus, addr: u16) -> (n: u8) {
-	when ODIN_DEBUG {
+	when DEBUG_INSTR {
 		if addr == 0xFF44 { return 0x90 }
 	}
 

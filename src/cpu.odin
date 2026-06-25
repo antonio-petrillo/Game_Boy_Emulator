@@ -4,6 +4,10 @@ import "core:fmt"
 import "core:os"
 import "core:log"
 
+when DEBUG_INSTR {
+	instructions_count: u64
+}
+
 when ODIN_ENDIAN == .Little {
 	_Registers :: struct #raw_union {
 		r: struct { flags, a, c, b, e, d, l, h: u8 },
@@ -19,6 +23,7 @@ when ODIN_ENDIAN == .Little {
 CPU_LR3590 :: struct {
 	regs: _Registers,
 	sp, pc: u16,
+	ime: bool,
 	bus: Bus,
 
 	t_cycles: u64,
@@ -65,9 +70,7 @@ cpu_step :: proc(cpu: ^CPU_LR3590) {
 	switch kind in instr.kind {
 	case NOP_Instruction:
 	case Jump_Instruction:
-		unconditional_jump(cpu, kind.arg)
-	case Conditional_Jump_Instruction:
-		jump_to_else := conditional_jump(cpu, kind.cond, kind.arg)
+		jump_to_else := jump_instrcution(cpu, kind)
 		if jump_to_else {
 			cpu.t_cycles -= instr.t_cycles
 			cpu.t_cycles += kind.alt_t_cycles
@@ -76,12 +79,128 @@ cpu_step :: proc(cpu: ^CPU_LR3590) {
 		load_16(cpu, kind)
 	case Load_R8_R8:
 		load_r8_r8(cpu, kind)
+	case Load_A_A16:
+		load_a_a16(cpu, kind)
+	case Load_HL_SP:
+		load_hl_sp(cpu, kind)
+	case Increment_Instruction:
+		switch increment_op in kind.arg {
+		case Increment_Arg_8:
+			increment_r8(cpu, kind.kind, increment_op)
+		case Increment_Arg_16:
+			increment_r16(cpu, kind.kind, increment_op)
+		}
+	case Interrupt_Master_Enable_Instruction:
+		ime_instruction(cpu, kind)
+	case LDH_Instruction:
+		ldh_instruction(cpu, kind)
 	}
 
-	when ODIN_DEBUG {
-		log.infof("OPCODE[0x%02x]: %s", opcode, instr.disassembly if instr.disassembly != "" else "Not Implemented Yet")
+	when DEBUG_INSTR {
+		instructions_count += 1
+		if instr.disassembly == "" {
+			log.warnf("OPCODE[0x%02x]: NOT IMPLEMENTED YET", opcode)
+			os.exit(-1)
+		}
+		log.infof("[instr num %06d], OPCODE[0x%02x]: %s", instructions_count, opcode, instr.disassembly)
 		file := (^os.File)(context.user_ptr)
 		dump_cpu_to_file(cpu, file)
+	}
+}
+
+load_hl_sp :: proc(cpu: ^CPU_LR3590, instr: Load_HL_SP) {
+	switch instr {
+	case .HL:
+		e8 := i8(fetch_u8(cpu))
+		value := u16(i16(cpu.sp) + i16(e8))
+		cpu.regs.l.hl = value
+	case .SP:
+		cpu.sp = cpu.regs.l.hl
+	}
+}
+
+ldh_instruction :: proc(cpu: ^CPU_LR3590, instr: LDH_Instruction) {
+	value: u8
+	switch instr.src {
+	case .A8_Indirect:
+		addr := 0xFF00 | u16(fetch_u8(cpu))
+		value = bus_read_u8(&cpu.bus, addr)
+	case .C_Indirect:
+		addr := 0xFF00 | u16(cpu.regs.r.c)
+		value = bus_read_u8(&cpu.bus, addr)
+	case .A:
+		value = cpu.regs.r.a
+	}
+
+	switch instr.dest {
+	case .A8_Indirect:
+		addr := 0xFF00 | u16(fetch_u8(cpu))
+		bus_write_u8(&cpu.bus, addr, value)
+	case .C_Indirect:
+		addr := 0xFF00 | u16(cpu.regs.r.c)
+		bus_write_u8(&cpu.bus, addr, value)
+	case .A:
+		cpu.regs.r.a = value
+	}
+}
+
+ime_instruction :: proc(cpu :^CPU_LR3590, op: Interrupt_Master_Enable_Instruction) {
+	switch op {
+	case .DI: cpu.ime = false
+	case .EI: cpu.ime = true
+	case .RETI: panic("NOT IMPLEMENTED YET [RETI]")
+	}
+}
+
+increment_r8 :: proc(cpu: ^CPU_LR3590, op: Increment_Kind, arg: Increment_Arg_8) {
+	reg: u8
+	switch arg {
+	case .A: reg = cpu.regs.r.a
+	case .B: reg = cpu.regs.r.b
+	case .C: reg = cpu.regs.r.c
+	case .D: reg = cpu.regs.r.d
+	case .E: reg = cpu.regs.r.e
+	case .H: reg = cpu.regs.r.h
+	case .L: reg = cpu.regs.r.l
+	case .HL_Indirect: reg = bus_read_u8(&cpu.bus, cpu.regs.l.hl)
+	}
+
+	if op == .Inc {
+		set_flag(cpu, .N, false)
+		set_flag(cpu, .H, reg & 0x0F == 0x0F)
+		reg += 1
+	} else {
+		set_flag(cpu, .N, true)
+		set_flag(cpu, .H, reg & 0x0F == 0x00)
+		reg -= 1
+	}
+	switch arg {
+	case .A: cpu.regs.r.a = reg
+	case .B: cpu.regs.r.b = reg
+	case .C: cpu.regs.r.c = reg
+	case .D: cpu.regs.r.d = reg
+	case .E: cpu.regs.r.e = reg
+	case .H: cpu.regs.r.h = reg
+	case .L: cpu.regs.r.l = reg
+	case .HL_Indirect: bus_write_u8(&cpu.bus, cpu.regs.l.hl, reg)
+	}
+	set_flag(cpu, .Z, reg == 0)
+}
+
+increment_r16 :: proc(cpu: ^CPU_LR3590, op: Increment_Kind, arg: Increment_Arg_16) {
+	switch arg {
+	case .BC: if op == .Inc { cpu.regs.l.bc += 1 } else { cpu.regs.l.bc -= 1 }
+	case .DE: if op == .Inc { cpu.regs.l.de += 1 } else { cpu.regs.l.de -= 1 }
+	case .HL: if op == .Inc { cpu.regs.l.hl += 1 } else { cpu.regs.l.hl -= 1 }
+	case .SP: if op == .Inc { cpu.sp += 1 } else { cpu.sp -= 1 }
+	}
+}
+
+load_a_a16 :: proc(cpu: ^CPU_LR3590, instr: Load_A_A16) {
+	value := fetch_u16(cpu)
+	switch instr {
+	case .A: cpu.regs.r.a = bus_read_u8(&cpu.bus, value)
+	case .A16: bus_write_u8(&cpu.bus, value, cpu.regs.r.a)
 	}
 }
 
@@ -116,8 +235,8 @@ load_r8_r8 :: proc(cpu: ^CPU_LR3590, instr: Load_R8_R8) {
 	case .H: cpu.regs.r.h = src
 	case .L: cpu.regs.r.l = src
 	case .BC: bus_write_u8(&cpu.bus, cpu.regs.l.bc, src)
-	case .DE: bus_write_u8(&cpu.bus, cpu.regs.l.bc, src)
-	case .HL: bus_write_u8(&cpu.bus, cpu.regs.l.bc, src)
+	case .DE: bus_write_u8(&cpu.bus, cpu.regs.l.de, src)
+	case .HL: bus_write_u8(&cpu.bus, cpu.regs.l.hl, src)
 	case .HL_Plus:
 		bus_write_u8(&cpu.bus, cpu.regs.l.bc, src)
 		cpu.regs.l.hl += 1
@@ -130,7 +249,7 @@ load_r8_r8 :: proc(cpu: ^CPU_LR3590, instr: Load_R8_R8) {
 load_16 :: proc(cpu: ^CPU_LR3590, instr: Load_16_Instruction) {
 	value := fetch_u16(cpu)
 
-	switch instr.arg {
+	switch instr.dest {
 	case .BC:
 		cpu.regs.l.bc = value
 	case .DE:
@@ -144,24 +263,23 @@ load_16 :: proc(cpu: ^CPU_LR3590, instr: Load_16_Instruction) {
 	}
 }
 
-unconditional_jump :: proc(cpu: ^CPU_LR3590, arg: Jump_Arg) {
+jump_instrcution :: proc(cpu: ^CPU_LR3590, instr: Jump_Instruction) -> bool {
 	addr: u16
-	switch arg {
+	switch instr.arg {
 	case .A16: addr = fetch_u16(cpu)
 	case .HL: addr = cpu.regs.l.hl
-	}
-	cpu.pc = addr
-}
-
-conditional_jump :: proc(cpu: ^CPU_LR3590, cond: Flag_Set, arg: Jump_Arg) -> bool {
-	for flag in cond {
-		if !is_flag_set(cpu, flag) { return false }
+	case .E8:
+		assert(instr.kind == .JR) // JR work only with E8
+		e8 := i8(fetch_u8(cpu))
+		addr = u16(i16(cpu.pc) + i16(e8))
 	}
 
-	addr: u16
-	switch arg {
-	case .A16: addr = fetch_u16(cpu)
-	case .HL: addr = cpu.regs.l.hl
+	switch instr.cond {
+	case .None:
+	case .Zero: if !is_flag_set(cpu, .Z) { return false }
+	case .Non_Zero: if is_flag_set(cpu, .Z) { return false }
+	case .Carry: if !is_flag_set(cpu, .C) { return false }
+	case .Non_Carry: if is_flag_set(cpu, .C) { return false }
 	}
 	cpu.pc = addr
 	return true
