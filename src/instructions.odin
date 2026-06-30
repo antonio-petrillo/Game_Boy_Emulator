@@ -61,6 +61,15 @@ Stack_Instruction :: struct {
 	arg: Stack_Arg,
 }
 
+Math_R8_R8_Kind :: enum { Add, Sub, And, Or, Adc, Sbc, Xor, Cp }
+Math_Flag_Action :: enum { None, One, Zero, Compute }
+Math_R8_R8_Arg :: enum { A, B, C, D, E, H, L, HL_Indirect, N8 }
+Math_R8_R8_Instruction :: struct {
+	op: Math_R8_R8_Kind,
+	flag_actions: [Flags]Math_Flag_Action,
+	arg: Math_R8_R8_Arg,
+}
+
 Instruction_Kind :: union {
 	NOP_Instruction,
 	Branch_Instruction,
@@ -73,6 +82,7 @@ Instruction_Kind :: union {
 	Increment_Instruction,
 	Interrupt_Master_Enable_Instruction,
 	Stack_Instruction,
+	Math_R8_R8_Instruction,
 }
 
 Instruction :: struct {
@@ -208,7 +218,7 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 
 
 	/*+------------------------------------+
-      | INSTRUCTION FROM 0x60 TO 0x6F      |
+      | INSTRUCTION FROM 0x70 TO 0x7F      |
       +------------------------------------+*/
 	0x70 = { Load_R8_R8{ .HL, .B }, 8, "LD [HL], B" },
 	0x71 = { Load_R8_R8{ .HL, .C }, 8, "LD [HL], C" },
@@ -227,6 +237,90 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0x7F = { Load_R8_R8{ .A, .A }, 4, "LD A, A" },
 
 	/*+------------------------------------+
+      | INSTRUCTION FROM 0x80 TO 0x8F      |
+      +------------------------------------+*/
+	0x80 = { Math_R8_R8_Instruction{ .Add, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .B }, 4, "ADD A, B" },
+	0x81 = { Math_R8_R8_Instruction{ .Add, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .C }, 4, "ADD A, C" },
+	0x82 = { Math_R8_R8_Instruction{ .Add, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .D }, 4, "ADD A, D" },
+	0x83 = { Math_R8_R8_Instruction{ .Add, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .E }, 4, "ADD A, E" },
+	0x84 = { Math_R8_R8_Instruction{ .Add, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .H }, 4, "ADD A, H" },
+	0x85 = { Math_R8_R8_Instruction{ .Add, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .L }, 4, "ADD A, L" },
+	0x86 = { Math_R8_R8_Instruction{ .Add, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .HL_Indirect }, 8, "ADD A, [HL]" },
+	0x87 = { Math_R8_R8_Instruction{ .Add, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .A }, 4, "ADD A, A" },
+
+	0x88 = { Math_R8_R8_Instruction{ .Adc, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .B }, 4, "ADC A, B" },
+	0x89 = { Math_R8_R8_Instruction{ .Adc, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .C }, 4, "ADC A, C" },
+	0x8A = { Math_R8_R8_Instruction{ .Adc, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .D }, 4, "ADC A, D" },
+	0x8B = { Math_R8_R8_Instruction{ .Adc, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .E }, 4, "ADC A, E" },
+	0x8C = { Math_R8_R8_Instruction{ .Adc, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .H }, 4, "ADC A, H" },
+	0x8D = { Math_R8_R8_Instruction{ .Adc, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .L }, 4, "ADC A, L" },
+	0x8E = { Math_R8_R8_Instruction{ .Adc, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .HL_Indirect }, 8, "ADC A, [HL]" },
+	0x8F = { Math_R8_R8_Instruction{ .Adc, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .A }, 4, "ADC A, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0x90 TO 0x9F      |
+      +------------------------------------+*/
+	0x90 = { Math_R8_R8_Instruction{ .Sub, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .B }, 4, "SUB A, B" },
+	0x91 = { Math_R8_R8_Instruction{ .Sub, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .B }, 4, "SUB A, C" },
+	0x92 = { Math_R8_R8_Instruction{ .Sub, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .B }, 4, "SUB A, D" },
+	0x93 = { Math_R8_R8_Instruction{ .Sub, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .B }, 4, "SUB A, E" },
+	0x94 = { Math_R8_R8_Instruction{ .Sub, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .B }, 4, "SUB A, H" },
+	0x95 = { Math_R8_R8_Instruction{ .Sub, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .B }, 4, "SUB A, L" },
+	0x96 = { Math_R8_R8_Instruction{ .Sub, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .HL_Indirect }, 4, "SUB A, [HL]" },
+	0x97 = { Math_R8_R8_Instruction{ .Sub, { .Z = .One, .N = .One, .H = .Zero, .C = .Zero }, .A }, 4, "SUB A, A" },
+
+	0x98 = { Math_R8_R8_Instruction{ .Sbc, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .B }, 4, "SBC A, B" },
+	0x99 = { Math_R8_R8_Instruction{ .Sbc, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .C }, 4, "SBC A, C" },
+	0x9A = { Math_R8_R8_Instruction{ .Sbc, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .D }, 4, "SBC A, D" },
+	0x9B = { Math_R8_R8_Instruction{ .Sbc, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .E }, 4, "SBC A, E" },
+	0x9C = { Math_R8_R8_Instruction{ .Sbc, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .H }, 4, "SBC A, H" },
+	0x9D = { Math_R8_R8_Instruction{ .Sbc, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .L }, 4, "SBC A, L" },
+	0x9E = { Math_R8_R8_Instruction{ .Sbc, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .HL_Indirect }, 8, "SBC A, [HL]" },
+	0x9F = { Math_R8_R8_Instruction{ .Sbc, { .Z = .Compute, .N = .One, .H = .Compute, .C = .None }, .A }, 4, "SBC A, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0xA0 TO 0xAF      |
+      +------------------------------------+*/
+	0xA0 = { Math_R8_R8_Instruction{ .And, { .Z = .Compute, .N = .Zero, .H = .One, .C = .Zero }, .B }, 4, "AND A, B" },
+	0xA1 = { Math_R8_R8_Instruction{ .And, { .Z = .Compute, .N = .Zero, .H = .One, .C = .Zero }, .C }, 4, "AND A, C" },
+	0xA2 = { Math_R8_R8_Instruction{ .And, { .Z = .Compute, .N = .Zero, .H = .One, .C = .Zero }, .D }, 4, "AND A, D" },
+	0xA3 = { Math_R8_R8_Instruction{ .And, { .Z = .Compute, .N = .Zero, .H = .One, .C = .Zero }, .E }, 4, "AND A, E" },
+	0xA4 = { Math_R8_R8_Instruction{ .And, { .Z = .Compute, .N = .Zero, .H = .One, .C = .Zero }, .H }, 4, "AND A, H" },
+	0xA5 = { Math_R8_R8_Instruction{ .And, { .Z = .Compute, .N = .Zero, .H = .One, .C = .Zero }, .L }, 4, "AND A, L" },
+	0xA6 = { Math_R8_R8_Instruction{ .And, { .Z = .Compute, .N = .Zero, .H = .One, .C = .Zero }, .HL_Indirect }, 8, "AND A, [HL]" },
+	0xA7 = { Math_R8_R8_Instruction{ .And, { .Z = .Compute, .N = .Zero, .H = .One, .C = .Zero }, .A }, 4, "AND A, A" },
+
+	0xA8 = { Math_R8_R8_Instruction{ .Xor, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .B }, 4, "XOR A, B" },
+	0xA9 = { Math_R8_R8_Instruction{ .Xor, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .C }, 4, "XOR A, C" },
+	0xAA = { Math_R8_R8_Instruction{ .Xor, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .D }, 4, "XOR A, D" },
+	0xAB = { Math_R8_R8_Instruction{ .Xor, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .E }, 4, "XOR A, E" },
+	0xAC = { Math_R8_R8_Instruction{ .Xor, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .H }, 4, "XOR A, H" },
+	0xAD = { Math_R8_R8_Instruction{ .Xor, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .L }, 4, "XOR A, L" },
+	0xAE = { Math_R8_R8_Instruction{ .Xor, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .HL_Indirect }, 8, "XOR A, [HL]" },
+	0xAF = { Math_R8_R8_Instruction{ .Xor, { .Z = .One, .N = .Zero, .H = .Zero, .C = .Zero }, .A }, 4, "XOR A, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0xB0 TO 0xBF      |
+      +------------------------------------+*/
+	0xB0 = { Math_R8_R8_Instruction{ .Or, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .B }, 4, "OR A, B" },
+	0xB1 = { Math_R8_R8_Instruction{ .Or, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .C }, 4, "OR A, C" },
+	0xB2 = { Math_R8_R8_Instruction{ .Or, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .D }, 4, "OR A, D" },
+	0xB3 = { Math_R8_R8_Instruction{ .Or, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .E }, 4, "OR A, E" },
+	0xB4 = { Math_R8_R8_Instruction{ .Or, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .H }, 4, "OR A, H" },
+	0xB5 = { Math_R8_R8_Instruction{ .Or, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .L }, 4, "OR A, L" },
+	0xB6 = { Math_R8_R8_Instruction{ .Or, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .HL_Indirect }, 8, "OR A, [HL]" },
+	0xB7 = { Math_R8_R8_Instruction{ .Or, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .A }, 4, "OR A, A" },
+
+	0xB8 = { Math_R8_R8_Instruction{ .Cp, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .B }, 4, "CP A, B" },
+	0xB9 = { Math_R8_R8_Instruction{ .Cp, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .C }, 4, "CP A, C" },
+	0xBA = { Math_R8_R8_Instruction{ .Cp, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .D }, 4, "CP A, D" },
+	0xBB = { Math_R8_R8_Instruction{ .Cp, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .E }, 4, "CP A, E" },
+	0xBC = { Math_R8_R8_Instruction{ .Cp, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .H }, 4, "CP A, H" },
+	0xBD = { Math_R8_R8_Instruction{ .Cp, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .L }, 4, "CP A, L" },
+	0xBE = { Math_R8_R8_Instruction{ .Cp, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .HL_Indirect }, 8, "CP A, [HL]" },
+	0xBF = { Math_R8_R8_Instruction{ .Cp, { .Z = .One, .N = .One, .H = .Zero, .C = .Zero }, .A }, 4, "CP A, A" },
+
+	/*+------------------------------------+
       | INSTRUCTION FROM 0xC0 TO 0xCF      |
       +------------------------------------+*/
 	0xC0 = { Ret_Instruction{ .Non_Zero, 20 }, 8, "RET NZ" },
@@ -235,10 +329,12 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0xC3 = { Branch_Instruction{ .JP, .None, .A16, 16 }, 16, "JP a16" },
 	0xC4 = { Branch_Instruction{ .CALL, .Non_Zero, .A16 , 24}, 12, "CALL NZ, a16" },
 	0xC5 = { Stack_Instruction{ .Push, .BC }, 16, "PUSH BC" },
+	0xC6 = { Math_R8_R8_Instruction{ .Add, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .N8 }, 8, "ADD A, n8" },
 	0xC8 = { Ret_Instruction{ .Zero, 20 }, 8, "RET Z" },
 	0xC9 = { Ret_Instruction{ .None, 16 }, 8, "RET" },
 	0xCA = { Branch_Instruction{ .JP, .Zero, .A16, 16 }, 12, "JP Z, a16" },
 	0xCC = { Branch_Instruction{ .CALL, .Zero, .A16 , 24}, 12, "CALL Z, a16" },
+	0xCE = { Math_R8_R8_Instruction{ .Adc, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .N8 }, 8, "ADC A, n8" },
 	0xCD = { Branch_Instruction{ .CALL, .None, .A16 , 24}, 24, "CALL a16" },
 
 	/*+------------------------------------+
@@ -249,9 +345,11 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0xD2 = { Branch_Instruction{ .JP, .Non_Carry, .A16 , 16}, 12, "JP NC, a16" },
 	0xD4 = { Branch_Instruction{ .CALL, .Non_Carry, .A16 , 24}, 12, "CALL NC, a16" },
 	0xD5 = { Stack_Instruction{ .Push, .DE }, 16, "PUSH DE" },
+	0xD6 = { Math_R8_R8_Instruction{ .Sub, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .N8 }, 8, "SUB A, n8" },
 	0xD8 = { Ret_Instruction{ .Carry, 20 }, 8, "RET C" },
 	0xD9 = { .RETI, 16, "RETI" },
 	0xDA = { Branch_Instruction{ .JP, .Carry, .A16, 16 }, 12, "JP C, a16" },
+	0xDE = { Math_R8_R8_Instruction{ .Sbc, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .N8 }, 8, "SBC A, n8" },
 	0xDC = { Branch_Instruction{ .CALL, .Carry, .A16 , 24}, 12, "CALL C, a16" },
 
 	/*+------------------------------------+
@@ -261,7 +359,9 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0xE1 = { Stack_Instruction{ .Pop, .HL }, 12, "POP HL" },
 	0xE2 = { LDH_Instruction{ .C_Indirect, .A }, 8, "LDH [C], A" },
 	0xE5 = { Stack_Instruction{ .Push, .HL }, 16, "PUSH HL" },
+	0xE6 = { Math_R8_R8_Instruction{ .And, { .Z = .Compute, .N = .Zero, .H = .One, .C = .Zero }, .N8 }, 8, "AND A, n8" },
 	0xEA = { .A16, 16, "LD [a16], A" },
+	0xEE = { Math_R8_R8_Instruction{ .Xor, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .N8 }, 8, "XOR A, n8" },
 	0xE9 = { Branch_Instruction{ .JP, .None, .HL, 4 }, 4, "JP HL" },
 
 	/*+------------------------------------+
@@ -272,7 +372,9 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0xF2 = { LDH_Instruction{ .A, .C_Indirect }, 8, "LDH A, [C]" },
 	0xF3 = { .DI, 4, "DI" },
 	0xF5 = { Stack_Instruction{ .Push, .AF }, 16, "PUSH AF" },
+	0xF6 = { Math_R8_R8_Instruction{ .Or, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .N8 }, 8, "OR A, n8" },
 	0xF8 = { .HL, 12, "LD HL, SP + e8" },
 	0xF9 = { .HL, 12, "LD SP, HL" },
+	0xFE = { Math_R8_R8_Instruction{ .Cp, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .N8 }, 8, "CP A, n8" },
 	0xFB = { .EI, 4, "EI" },
 }
