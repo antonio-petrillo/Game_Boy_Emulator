@@ -4,13 +4,18 @@ Flag_Set :: bit_set[Flags]
 
 NOP_Instruction :: struct { }
 
-Jump_Arg :: enum { A16, HL, E8 }
-Jump_Kind :: enum { JP, JR } // NOTE: absolute and relative
-Jump_Condition :: enum { None, Zero, Non_Zero, Carry, Non_Carry }
-Jump_Instruction :: struct {
-	kind: Jump_Kind,
-	cond: Jump_Condition,
-	arg: Jump_Arg,
+Branch_Arg :: enum { A16, HL, E8 }
+Branch_Kind :: enum { JP, JR, CALL } // NOTE: absolute, relative and function call
+Branch_Condition :: enum { None, Zero, Non_Zero, Carry, Non_Carry }
+Branch_Instruction :: struct {
+	kind: Branch_Kind,
+	cond: Branch_Condition,
+	arg: Branch_Arg,
+	alt_t_cycles: u64,
+}
+
+Ret_Instruction :: struct {
+	cond: Branch_Condition,
 	alt_t_cycles: u64,
 }
 
@@ -49,9 +54,17 @@ Increment_Instruction :: struct {
 
 Interrupt_Master_Enable_Instruction :: enum { DI, EI, RETI }
 
+Stack_Op :: enum { Push, Pop }
+Stack_Arg :: enum { BC, DE, HL, AF }
+Stack_Instruction :: struct {
+	op: Stack_Op,
+	arg: Stack_Arg,
+}
+
 Instruction_Kind :: union {
 	NOP_Instruction,
-	Jump_Instruction,
+	Branch_Instruction,
+	Ret_Instruction,
 	Load_16_Instruction,
 	Load_R8_R8,
 	Load_A_A16,
@@ -59,6 +72,7 @@ Instruction_Kind :: union {
 	Load_HL_SP,
 	Increment_Instruction,
 	Interrupt_Master_Enable_Instruction,
+	Stack_Instruction,
 }
 
 Instruction :: struct {
@@ -94,7 +108,7 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0x14 = { Increment_Instruction{ .Inc, .D }, 4, "INC D" },
 	0x15 = { Increment_Instruction{ .Dec, .D }, 4, "DEC D" },
 	0x16 = { Load_R8_R8{ .D, .N8 }, 8, "LD D, n8" },
-	0x18 = { Jump_Instruction{ .JR, .None, .E8, 12 }, 12, "JR e8" },
+	0x18 = { Branch_Instruction{ .JR, .None, .E8, 12 }, 12, "JR e8" },
 	0x1A = { Load_R8_R8{ .A, .DE }, 8, "LD A, [DE]" },
 	0x1C = { Increment_Instruction{ .Inc, .E }, 4, "INC E" },
 	0x1D = { Increment_Instruction{ .Dec, .E }, 4, "DEC E" },
@@ -103,14 +117,14 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	/*+------------------------------------+
       | INSTRUCTION FROM 0x20 TO 0x2F      |
       +------------------------------------+*/
-	0x20 = { Jump_Instruction{ .JR, .Non_Zero, .E8, 12 }, 8, "JR NZ, e8" },
+	0x20 = { Branch_Instruction{ .JR, .Non_Zero, .E8, 12 }, 8, "JR NZ, e8" },
 	0x21 = { Load_16_Instruction{ .HL }, 12,  "LD HL, n16"},
 	0x22 = { Load_R8_R8{ .HL_Plus, .A }, 8, "LD [HL+], A" },
 	0x23 = { Increment_Instruction{ .Inc, .HL }, 8, "INC HL" },
 	0x24 = { Increment_Instruction{ .Inc, .H }, 4, "INC H" },
 	0x25 = { Increment_Instruction{ .Dec, .H }, 4, "DEC H" },
 	0x26 = { Load_R8_R8{ .H, .N8 }, 8, "LD H, n8" },
-	0x28 = { Jump_Instruction{ .JR, .Zero, .E8, 12 }, 8, "JR Z, e8" },
+	0x28 = { Branch_Instruction{ .JR, .Zero, .E8, 12 }, 8, "JR Z, e8" },
 	0x2A = { Load_R8_R8{ .A, .HL_Plus }, 8, "LD A, [HL+]" },
 	0x2C = { Increment_Instruction{ .Inc, .L }, 4, "INC L" },
 	0x2D = { Increment_Instruction{ .Dec, .L }, 4, "DEC L" },
@@ -119,14 +133,14 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	/*+------------------------------------+
       | INSTRUCTION FROM 0x30 TO 0x3F      |
       +------------------------------------+*/
-	0x30 = { Jump_Instruction{ .JR, .Non_Carry, .E8, 12 }, 8, "JR NC, e8" },
+	0x30 = { Branch_Instruction{ .JR, .Non_Carry, .E8, 12 }, 8, "JR NC, e8" },
 	0x31 = { Load_16_Instruction{ .SP }, 12,  "LD SP, n16"},
 	0x32 = { Load_R8_R8{ .HL_Minus, .A }, 8, "LD [HL-], A" },
 	0x33 = { Increment_Instruction{ .Inc, .SP }, 8, "INC SP" },
 	0x34 = { Increment_Instruction{ .Inc, .HL }, 12, "INC [HL]" },
 	0x35 = { Increment_Instruction{ .Dec, .HL }, 12, "DEC [HL]" },
 	0x36 = { Load_R8_R8{ .HL, .N8 }, 8, "LD [HL], n8" },
-	0x38 = { Jump_Instruction{ .JR, .Carry, .E8, 12 }, 8, "JR C, e8" },
+	0x38 = { Branch_Instruction{ .JR, .Carry, .E8, 12 }, 8, "JR C, e8" },
 	0x3A = { Load_R8_R8{ .A, .HL_Minus }, 8, "LD A, [HL-]" },
 	0x3C = { Increment_Instruction{ .Inc, .A }, 4, "INC A" },
 	0x3D = { Increment_Instruction{ .Dec, .A }, 4, "DEC A" },
@@ -215,30 +229,49 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	/*+------------------------------------+
       | INSTRUCTION FROM 0xC0 TO 0xCF      |
       +------------------------------------+*/
-	0xC2 = { Jump_Instruction{ .JP, .Non_Zero, .A16 , 16}, 12, "JP NZ, a16" },
-	0xC3 = { Jump_Instruction{ .JP, .None, .A16, 16 }, 16, "JP a16" },
-	0xCA = { Jump_Instruction{ .JP, .Zero, .A16, 16 }, 12, "JP Z, a16" },
+	0xC0 = { Ret_Instruction{ .Non_Zero, 20 }, 8, "RET NZ" },
+	0xC1 = { Stack_Instruction{ .Pop, .BC }, 12, "POP BC" },
+	0xC2 = { Branch_Instruction{ .JP, .Non_Zero, .A16 , 16}, 12, "JP NZ, a16" },
+	0xC3 = { Branch_Instruction{ .JP, .None, .A16, 16 }, 16, "JP a16" },
+	0xC4 = { Branch_Instruction{ .CALL, .Non_Zero, .A16 , 24}, 12, "CALL NZ, a16" },
+	0xC5 = { Stack_Instruction{ .Push, .BC }, 16, "PUSH BC" },
+	0xC8 = { Ret_Instruction{ .Zero, 20 }, 8, "RET Z" },
+	0xC9 = { Ret_Instruction{ .None, 16 }, 8, "RET" },
+	0xCA = { Branch_Instruction{ .JP, .Zero, .A16, 16 }, 12, "JP Z, a16" },
+	0xCC = { Branch_Instruction{ .CALL, .Zero, .A16 , 24}, 12, "CALL Z, a16" },
+	0xCD = { Branch_Instruction{ .CALL, .None, .A16 , 24}, 24, "CALL a16" },
 
 	/*+------------------------------------+
       | INSTRUCTION FROM 0xD0 TO 0xDF      |
       +------------------------------------+*/
-	0xD2 = { Jump_Instruction{ .JP, .Non_Carry, .A16 , 16}, 12, "JP NC, a16" },
-	0xDA = { Jump_Instruction{ .JP, .Carry, .A16, 16 }, 12, "JP C, a16" },
+	0xD0 = { Ret_Instruction{ .Non_Carry, 20 }, 8, "RET NC" },
+	0xD1 = { Stack_Instruction{ .Pop, .DE }, 12, "POP DE" },
+	0xD2 = { Branch_Instruction{ .JP, .Non_Carry, .A16 , 16}, 12, "JP NC, a16" },
+	0xD4 = { Branch_Instruction{ .CALL, .Non_Carry, .A16 , 24}, 12, "CALL NC, a16" },
+	0xD5 = { Stack_Instruction{ .Push, .DE }, 16, "PUSH DE" },
+	0xD8 = { Ret_Instruction{ .Carry, 20 }, 8, "RET C" },
+	0xD9 = { .RETI, 16, "RETI" },
+	0xDA = { Branch_Instruction{ .JP, .Carry, .A16, 16 }, 12, "JP C, a16" },
+	0xDC = { Branch_Instruction{ .CALL, .Carry, .A16 , 24}, 12, "CALL C, a16" },
 
 	/*+------------------------------------+
       | INSTRUCTION FROM 0xE0 TO 0xEF      |
       +------------------------------------+*/
 	0xE0 = { LDH_Instruction{ .A8_Indirect, .A }, 12, "LDH [a8], A" },
+	0xE1 = { Stack_Instruction{ .Pop, .HL }, 12, "POP HL" },
 	0xE2 = { LDH_Instruction{ .C_Indirect, .A }, 8, "LDH [C], A" },
+	0xE5 = { Stack_Instruction{ .Push, .HL }, 16, "PUSH HL" },
 	0xEA = { .A16, 16, "LD [a16], A" },
-	0xE9 = { Jump_Instruction{ .JP, .None, .HL, 4 }, 4, "JP HL" },
+	0xE9 = { Branch_Instruction{ .JP, .None, .HL, 4 }, 4, "JP HL" },
 
 	/*+------------------------------------+
       | INSTRUCTION FROM 0xF0 TO 0xFF      |
       +------------------------------------+*/
 	0xF0 = { LDH_Instruction{ .A, .A8_Indirect }, 12, "LDH A, [a8]" },
+	0xF1 = { Stack_Instruction{ .Pop, .AF }, 12, "POP AF" },
 	0xF2 = { LDH_Instruction{ .A, .C_Indirect }, 8, "LDH A, [C]" },
 	0xF3 = { .DI, 4, "DI" },
+	0xF5 = { Stack_Instruction{ .Push, .AF }, 16, "PUSH AF" },
 	0xF8 = { .HL, 12, "LD HL, SP + e8" },
 	0xF9 = { .HL, 12, "LD SP, HL" },
 	0xFB = { .EI, 4, "EI" },

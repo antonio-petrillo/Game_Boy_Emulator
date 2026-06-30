@@ -62,6 +62,17 @@ fetch_u16 :: proc(cpu: ^CPU_LR3590) -> u16 {
 	return (u16(high) << 8) | u16(low)
 }
 
+stack_push :: proc(cpu: ^CPU_LR3590, value: u16) {
+	cpu.sp -= 2
+	bus_write_u16(&cpu.bus, cpu.sp, value)
+}
+
+stack_pop :: proc(cpu: ^CPU_LR3590) -> u16 {
+	value := bus_read_u16(&cpu.bus, cpu.sp)
+	cpu.sp += 2
+	return value
+}
+
 cpu_step :: proc(cpu: ^CPU_LR3590) {
 	opcode := fetch_u8(cpu)
 	instr := INSTRUCTIONS_TABLE[opcode]
@@ -69,9 +80,15 @@ cpu_step :: proc(cpu: ^CPU_LR3590) {
 
 	switch kind in instr.kind {
 	case NOP_Instruction: // NO OP
-	case Jump_Instruction:
-		jump_to_else := jump_instrcution(cpu, kind)
-		if jump_to_else {
+	case Ret_Instruction:
+		branched := ret_instruction(cpu, kind)
+		if branched {
+			cpu.t_cycles -= instr.t_cycles
+			cpu.t_cycles += kind.alt_t_cycles
+		}
+	case Branch_Instruction:
+		branched := branch_instruction(cpu, kind)
+		if branched {
 			cpu.t_cycles -= instr.t_cycles
 			cpu.t_cycles += kind.alt_t_cycles
 		}
@@ -94,6 +111,8 @@ cpu_step :: proc(cpu: ^CPU_LR3590) {
 		ime_instruction(cpu, kind)
 	case LDH_Instruction:
 		ldh_instruction(cpu, kind)
+	case Stack_Instruction:
+		stack_instruction(cpu, kind)
 	}
 
 	when DEBUG_INSTR {
@@ -151,11 +170,33 @@ ldh_instruction :: proc(cpu: ^CPU_LR3590, instr: LDH_Instruction) {
 	}
 }
 
-ime_instruction :: proc(cpu :^CPU_LR3590, op: Interrupt_Master_Enable_Instruction) {
+stack_instruction :: proc(cpu: ^CPU_LR3590, instr: Stack_Instruction) {
+	switch instr.op {
+	case .Push:
+		switch instr.arg {
+		case .BC: stack_push(cpu, cpu.regs.l.bc)
+		case .DE: stack_push(cpu, cpu.regs.l.de)
+		case .HL: stack_push(cpu, cpu.regs.l.hl)
+		case .AF: stack_push(cpu, cpu.regs.l.af)
+		}
+	case .Pop:
+		value := stack_pop(cpu)
+		switch instr.arg {
+		case .BC: cpu.regs.l.bc = value
+		case .DE: cpu.regs.l.de = value
+		case .HL: cpu.regs.l.hl = value
+		case .AF: cpu.regs.l.af = value
+		}
+	}
+}
+
+ime_instruction :: proc(cpu: ^CPU_LR3590, op: Interrupt_Master_Enable_Instruction) {
 	switch op {
 	case .DI: cpu.ime = false
 	case .EI: cpu.ime = true
-	case .RETI: panic("NOT IMPLEMENTED YET [RETI]")
+	case .RETI:
+		cpu.ime = true
+		_ = ret_instruction(cpu, Ret_Instruction{.None, 16})
 	}
 }
 
@@ -270,7 +311,21 @@ load_16 :: proc(cpu: ^CPU_LR3590, instr: Load_16_Instruction) {
 	}
 }
 
-jump_instrcution :: proc(cpu: ^CPU_LR3590, instr: Jump_Instruction) -> bool {
+ret_instruction :: proc(cpu: ^CPU_LR3590, instr: Ret_Instruction) -> bool {
+	switch instr.cond {
+	case .None:
+	case .Zero: if !is_flag_set(cpu, .Z) { return false }
+	case .Non_Zero: if is_flag_set(cpu, .Z) { return false }
+	case .Carry: if !is_flag_set(cpu, .C) { return false }
+	case .Non_Carry: if is_flag_set(cpu, .C) { return false }
+	}
+
+	cpu.pc = stack_pop(cpu)
+
+	return true
+}
+
+branch_instruction :: proc(cpu: ^CPU_LR3590, instr: Branch_Instruction) -> bool {
 	addr: u16
 	switch instr.arg {
 	case .A16: addr = fetch_u16(cpu)
@@ -288,7 +343,15 @@ jump_instrcution :: proc(cpu: ^CPU_LR3590, instr: Jump_Instruction) -> bool {
 	case .Carry: if !is_flag_set(cpu, .C) { return false }
 	case .Non_Carry: if is_flag_set(cpu, .C) { return false }
 	}
-	cpu.pc = addr
+
+	switch instr.kind {
+	case .CALL:
+		stack_push(cpu, cpu.pc)
+		fallthrough
+	case .JP, .JR:
+		cpu.pc = addr
+	}
+
 	return true
 }
 
