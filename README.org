@@ -2,3 +2,6 @@
 #+author: Antonio Petrillo
 
 This is a Game Boy emulator written in odin. 
+
+* Resources
+- In this [[https://gist.github.com/meganesu/9e228b6b587decc783aa9be34ae27841][Gist]] there is a neat trick on how to compute the _carry_ and _half carry_

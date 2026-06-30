@@ -70,6 +70,8 @@ Math_R8_R8_Instruction :: struct {
 	arg: Math_R8_R8_Arg,
 }
 
+Prefix :: distinct struct {}
+
 Instruction_Kind :: union {
 	NOP_Instruction,
 	Branch_Instruction,
@@ -83,6 +85,7 @@ Instruction_Kind :: union {
 	Interrupt_Master_Enable_Instruction,
 	Stack_Instruction,
 	Math_R8_R8_Instruction,
+	Prefix,
 }
 
 Instruction :: struct {
@@ -333,6 +336,7 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0xC8 = { Ret_Instruction{ .Zero, 20 }, 8, "RET Z" },
 	0xC9 = { Ret_Instruction{ .None, 16 }, 8, "RET" },
 	0xCA = { Branch_Instruction{ .JP, .Zero, .A16, 16 }, 12, "JP Z, a16" },
+	0xCB = { Prefix{}, 4, "PREFIX" },
 	0xCC = { Branch_Instruction{ .CALL, .Zero, .A16 , 24}, 12, "CALL Z, a16" },
 	0xCE = { Math_R8_R8_Instruction{ .Adc, { .Z = .Compute, .N = .Zero, .H = .Compute, .C = .Compute }, .N8 }, 8, "ADC A, n8" },
 	0xCD = { Branch_Instruction{ .CALL, .None, .A16 , 24}, 24, "CALL a16" },
@@ -360,9 +364,9 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0xE2 = { LDH_Instruction{ .C_Indirect, .A }, 8, "LDH [C], A" },
 	0xE5 = { Stack_Instruction{ .Push, .HL }, 16, "PUSH HL" },
 	0xE6 = { Math_R8_R8_Instruction{ .And, { .Z = .Compute, .N = .Zero, .H = .One, .C = .Zero }, .N8 }, 8, "AND A, n8" },
-	0xEA = { .A16, 16, "LD [a16], A" },
-	0xEE = { Math_R8_R8_Instruction{ .Xor, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .N8 }, 8, "XOR A, n8" },
 	0xE9 = { Branch_Instruction{ .JP, .None, .HL, 4 }, 4, "JP HL" },
+	0xEA = { .A, 16, "LD [a16], A" },
+	0xEE = { Math_R8_R8_Instruction{ .Xor, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .N8 }, 8, "XOR A, n8" },
 
 	/*+------------------------------------+
       | INSTRUCTION FROM 0xF0 TO 0xFF      |
@@ -375,6 +379,395 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0xF6 = { Math_R8_R8_Instruction{ .Or, { .Z = .Compute, .N = .Zero, .H = .Zero, .C = .Zero }, .N8 }, 8, "OR A, n8" },
 	0xF8 = { .HL, 12, "LD HL, SP + e8" },
 	0xF9 = { .HL, 12, "LD SP, HL" },
+	0xFA = { .A16, 16, "LD A, [a16]" },
 	0xFE = { Math_R8_R8_Instruction{ .Cp, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .N8 }, 8, "CP A, n8" },
 	0xFB = { .EI, 4, "EI" },
+}
+
+Rotation_Kind :: enum { Left, Right }
+Rotate_Arg :: enum { A, B, C, D, E, H, L, HL_Indirect }
+Rotate_Instruction :: struct {
+	kind: Rotation_Kind,
+	arg: Rotate_Arg,
+	use_carry_bit_from_byte: bool,
+}
+
+Shift_Kind :: enum { Logical, Arithmetic }
+Shift_Rotation_Kind :: Rotation_Kind
+Shift_Arg :: Rotate_Arg
+Shift_Instruction :: struct {
+	kind: Shift_Kind,
+	rotation_kind: Shift_Rotation_Kind,
+	arg: Shift_Arg,
+}
+
+Prefix_Bit_Set_Op :: enum { Set, Res }
+Prefix_Bit_Set_Arg :: enum { A, B, C, D, E, H, L, HL_Indirect }
+Set_Bit_Instruction :: struct {
+	op: Prefix_Bit_Set_Op,
+	arg: Prefix_Bit_Set_Arg,
+	bit_index: u8, // should be in 0..=7
+}
+
+Swap_Arg :: Prefix_Bit_Set_Arg
+Swap_Instruction :: struct {
+	arg: Swap_Arg,
+}
+
+Test_Bit_Arg :: Prefix_Bit_Set_Arg
+Test_Bit_Instruction :: struct {
+	arg: Test_Bit_Arg,
+	bit_index: u8,
+}
+
+Prefix_Instruction_Kind :: union {
+	Set_Bit_Instruction,
+	Rotate_Instruction,
+	Shift_Instruction,
+	Swap_Instruction,
+	Test_Bit_Instruction,
+}
+
+Prefix_Instruction :: struct {
+	kind: Prefix_Instruction_Kind,
+	t_cycles: u64,
+	disassembly: string,
+}
+
+PREFIX_INSTRUCTIONS_TABLE := [0x100]Prefix_Instruction {
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0x00 TO 0x0F      |
+      +------------------------------------+*/
+	0x00 = { Rotate_Instruction{ .Left, .B, true }, 8, "RLC B" },
+	0x01 = { Rotate_Instruction{ .Left, .C, true }, 8, "RLC C" },
+	0x02 = { Rotate_Instruction{ .Left, .D, true }, 8, "RLC D" },
+	0x03 = { Rotate_Instruction{ .Left, .E, true }, 8, "RLC E" },
+	0x04 = { Rotate_Instruction{ .Left, .H, true }, 8, "RLC H" },
+	0x05 = { Rotate_Instruction{ .Left, .L, true }, 8, "RLC L" },
+	0x06 = { Rotate_Instruction{ .Left, .HL_Indirect, true }, 16, "RLC [HL]" },
+	0x07 = { Rotate_Instruction{ .Left, .A, true }, 8, "RLC A" },
+
+	0x08 = { Rotate_Instruction{ .Right, .B, true }, 8, "RRC B" },
+	0x09 = { Rotate_Instruction{ .Right, .C, true }, 8, "RRC C" },
+	0x0A = { Rotate_Instruction{ .Right, .D, true }, 8, "RRC D" },
+	0x0B = { Rotate_Instruction{ .Right, .E, true }, 8, "RRC E" },
+	0x0C = { Rotate_Instruction{ .Right, .H, true }, 8, "RRC H" },
+	0x0D = { Rotate_Instruction{ .Right, .L, true }, 8, "RRC L" },
+	0x0E = { Rotate_Instruction{ .Right, .HL_Indirect, true }, 16, "RRC [HL]" },
+	0x0F = { Rotate_Instruction{ .Right, .A, true }, 8, "RRC A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0x10 TO 0x1F      |
+      +------------------------------------+*/
+	0x10 = { Rotate_Instruction{ .Left, .B, false }, 8, "RL B" },
+	0x11 = { Rotate_Instruction{ .Left, .C, false }, 8, "RL C" },
+	0x12 = { Rotate_Instruction{ .Left, .D, false }, 8, "RL D" },
+	0x13 = { Rotate_Instruction{ .Left, .E, false }, 8, "RL E" },
+	0x14 = { Rotate_Instruction{ .Left, .H, false }, 8, "RL H" },
+	0x15 = { Rotate_Instruction{ .Left, .L, false }, 8, "RL L" },
+	0x16 = { Rotate_Instruction{ .Left, .HL_Indirect, false }, 16, "RL [HL]" },
+	0x17 = { Rotate_Instruction{ .Left, .A, false }, 8, "RL A" },
+
+	0x18 = { Rotate_Instruction{ .Right, .B, false }, 8, "RR B" },
+	0x19 = { Rotate_Instruction{ .Right, .C, false }, 8, "RR C" },
+	0x1A = { Rotate_Instruction{ .Right, .D, false }, 8, "RR D" },
+	0x1B = { Rotate_Instruction{ .Right, .E, false }, 8, "RR E" },
+	0x1C = { Rotate_Instruction{ .Right, .H, false }, 8, "RR H" },
+	0x1D = { Rotate_Instruction{ .Right, .L, false }, 8, "RR L" },
+	0x1E = { Rotate_Instruction{ .Right, .HL_Indirect, false }, 16, "RR [HL]" },
+	0x1F = { Rotate_Instruction{ .Right, .A, false }, 8, "RR A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0x20 TO 0x2F      |
+      +------------------------------------+*/
+	0x20 = { Shift_Instruction{ .Arithmetic, .Left, .B }, 8, "SLA B" },
+	0x21 = { Shift_Instruction{ .Arithmetic, .Left, .C }, 8, "SLA C" },
+	0x22 = { Shift_Instruction{ .Arithmetic, .Left, .D }, 8, "SLA D" },
+	0x23 = { Shift_Instruction{ .Arithmetic, .Left, .E }, 8, "SLA E" },
+	0x24 = { Shift_Instruction{ .Arithmetic, .Left, .H }, 8, "SLA H" },
+	0x25 = { Shift_Instruction{ .Arithmetic, .Left, .L }, 8, "SLA L" },
+	0x26 = { Shift_Instruction{ .Arithmetic, .Left, .HL_Indirect }, 16, "SLA [HL]" },
+	0x27 = { Shift_Instruction{ .Arithmetic, .Left, .A }, 8, "SLA A" },
+
+	0x28 = { Shift_Instruction{ .Arithmetic, .Right, .B }, 8, "SRA B" },
+	0x29 = { Shift_Instruction{ .Arithmetic, .Right, .C }, 8, "SRA C" },
+	0x2A = { Shift_Instruction{ .Arithmetic, .Right, .D }, 8, "SRA D" },
+	0x2B = { Shift_Instruction{ .Arithmetic, .Right, .E }, 8, "SRA E" },
+	0x2C = { Shift_Instruction{ .Arithmetic, .Right, .H }, 8, "SRA H" },
+	0x2D = { Shift_Instruction{ .Arithmetic, .Right, .L }, 8, "SRA L" },
+	0x2E = { Shift_Instruction{ .Arithmetic, .Right, .HL_Indirect }, 16, "SRA [HL]" },
+	0x2F = { Shift_Instruction{ .Arithmetic, .Right, .A }, 8, "SRA A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0x30 TO 0x3F      |
+      +------------------------------------+*/
+	0x30 = { Swap_Instruction{ .B }, 8, "SWAP B" },
+	0x31 = { Swap_Instruction{ .C }, 8, "SWAP C" },
+	0x32 = { Swap_Instruction{ .D }, 8, "SWAP D" },
+	0x33 = { Swap_Instruction{ .E }, 8, "SWAP E" },
+	0x34 = { Swap_Instruction{ .H }, 8, "SWAP H" },
+	0x35 = { Swap_Instruction{ .L }, 8, "SWAP L" },
+	0x36 = { Swap_Instruction{ .HL_Indirect }, 16, "SWAP [HL]" },
+	0x37 = { Swap_Instruction{ .A }, 8, "SWAP A" },
+
+	0x38 = { Shift_Instruction{ .Logical, .Right, .B }, 8, "SRL B" },
+	0x39 = { Shift_Instruction{ .Logical, .Right, .C }, 8, "SRL C" },
+	0x3A = { Shift_Instruction{ .Logical, .Right, .D }, 8, "SRL D" },
+	0x3B = { Shift_Instruction{ .Logical, .Right, .E }, 8, "SRL E" },
+	0x3C = { Shift_Instruction{ .Logical, .Right, .H }, 8, "SRL H" },
+	0x3D = { Shift_Instruction{ .Logical, .Right, .L }, 8, "SRL L" },
+	0x3E = { Shift_Instruction{ .Logical, .Right, .HL_Indirect }, 16, "SRL [HL]" },
+	0x3F = { Shift_Instruction{ .Logical, .Right, .A }, 8, "SRL A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0x40 TO 0x4F      |
+      +------------------------------------+*/
+	0x40 = { Test_Bit_Instruction{ .B, 0 }, 8, "BIT 0, B" },
+	0x41 = { Test_Bit_Instruction{ .C, 0 }, 8, "BIT 0, C" },
+	0x42 = { Test_Bit_Instruction{ .D, 0 }, 8, "BIT 0, D" },
+	0x43 = { Test_Bit_Instruction{ .E, 0 }, 8, "BIT 0, E" },
+	0x44 = { Test_Bit_Instruction{ .H, 0 }, 8, "BIT 0, H" },
+	0x45 = { Test_Bit_Instruction{ .L, 0 }, 8, "BIT 0, L" },
+	0x46 = { Test_Bit_Instruction{ .HL_Indirect, 0 }, 8, "BIT 0, [HL]" },
+	0x47 = { Test_Bit_Instruction{ .A, 0 }, 8, "BIT 0, A" },
+
+	0x48 = { Test_Bit_Instruction{ .B, 1 }, 8, "BIT 1, B" },
+	0x49 = { Test_Bit_Instruction{ .C, 1 }, 8, "BIT 1, C" },
+	0x4A = { Test_Bit_Instruction{ .D, 1 }, 8, "BIT 1, D" },
+	0x4B = { Test_Bit_Instruction{ .E, 1 }, 8, "BIT 1, E" },
+	0x4C = { Test_Bit_Instruction{ .H, 1 }, 8, "BIT 1, H" },
+	0x4D = { Test_Bit_Instruction{ .L, 1 }, 8, "BIT 1, L" },
+	0x4E = { Test_Bit_Instruction{ .HL_Indirect, 1 }, 8, "BIT 1, [HL]" },
+	0x4F = { Test_Bit_Instruction{ .A, 1 }, 8, "BIT 1, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0x50 TO 0x5F      |
+      +------------------------------------+*/
+	0x50 = { Test_Bit_Instruction{ .B, 2 }, 8, "BIT 2, B" },
+	0x51 = { Test_Bit_Instruction{ .C, 2 }, 8, "BIT 2, C" },
+	0x52 = { Test_Bit_Instruction{ .D, 2 }, 8, "BIT 2, D" },
+	0x53 = { Test_Bit_Instruction{ .E, 2 }, 8, "BIT 2, E" },
+	0x54 = { Test_Bit_Instruction{ .H, 2 }, 8, "BIT 2, H" },
+	0x55 = { Test_Bit_Instruction{ .L, 2 }, 8, "BIT 2, L" },
+	0x56 = { Test_Bit_Instruction{ .HL_Indirect, 2 }, 8, "BIT 2, [HL]" },
+	0x57 = { Test_Bit_Instruction{ .A, 2 }, 8, "BIT 2, A" },
+
+	0x58 = { Test_Bit_Instruction{ .B, 3 }, 8, "BIT 3, B" },
+	0x59 = { Test_Bit_Instruction{ .C, 3 }, 8, "BIT 3, C" },
+	0x5A = { Test_Bit_Instruction{ .D, 3 }, 8, "BIT 3, D" },
+	0x5B = { Test_Bit_Instruction{ .E, 3 }, 8, "BIT 3, E" },
+	0x5C = { Test_Bit_Instruction{ .H, 3 }, 8, "BIT 3, H" },
+	0x5D = { Test_Bit_Instruction{ .L, 3 }, 8, "BIT 3, L" },
+	0x5E = { Test_Bit_Instruction{ .HL_Indirect, 3 }, 8, "BIT 3, [HL]" },
+	0x5F = { Test_Bit_Instruction{ .A, 3 }, 8, "BIT 3, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0x60 TO 0x6F      |
+      +------------------------------------+*/
+	0x60 = { Test_Bit_Instruction{ .B, 4 }, 8, "BIT 4, B" },
+	0x61 = { Test_Bit_Instruction{ .C, 4 }, 8, "BIT 4, C" },
+	0x62 = { Test_Bit_Instruction{ .D, 4 }, 8, "BIT 4, D" },
+	0x63 = { Test_Bit_Instruction{ .E, 4 }, 8, "BIT 4, E" },
+	0x64 = { Test_Bit_Instruction{ .H, 4 }, 8, "BIT 4, H" },
+	0x65 = { Test_Bit_Instruction{ .L, 4 }, 8, "BIT 4, L" },
+	0x66 = { Test_Bit_Instruction{ .HL_Indirect, 4 }, 8, "BIT 4, [HL]" },
+	0x67 = { Test_Bit_Instruction{ .A, 4 }, 8, "BIT 4, A" },
+
+	0x68 = { Test_Bit_Instruction{ .B, 5 }, 8, "BIT 5, B" },
+	0x69 = { Test_Bit_Instruction{ .C, 5 }, 8, "BIT 5, C" },
+	0x6A = { Test_Bit_Instruction{ .D, 5 }, 8, "BIT 5, D" },
+	0x6B = { Test_Bit_Instruction{ .E, 5 }, 8, "BIT 5, E" },
+	0x6C = { Test_Bit_Instruction{ .H, 5 }, 8, "BIT 5, H" },
+	0x6D = { Test_Bit_Instruction{ .L, 5 }, 8, "BIT 5, L" },
+	0x6E = { Test_Bit_Instruction{ .HL_Indirect, 5 }, 8, "BIT 5, [HL]" },
+	0x6F = { Test_Bit_Instruction{ .A, 5 }, 8, "BIT 5, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0x70 TO 0x7F      |
+      +------------------------------------+*/
+	0x70 = { Test_Bit_Instruction{ .B, 6 }, 8, "BIT 6, B" },
+	0x71 = { Test_Bit_Instruction{ .C, 6 }, 8, "BIT 6, C" },
+	0x72 = { Test_Bit_Instruction{ .D, 6 }, 8, "BIT 6, D" },
+	0x73 = { Test_Bit_Instruction{ .E, 6 }, 8, "BIT 6, E" },
+	0x74 = { Test_Bit_Instruction{ .H, 6 }, 8, "BIT 6, H" },
+	0x75 = { Test_Bit_Instruction{ .L, 6 }, 8, "BIT 6, L" },
+	0x76 = { Test_Bit_Instruction{ .HL_Indirect, 6 }, 8, "BIT 6, [HL]" },
+	0x77 = { Test_Bit_Instruction{ .A, 6 }, 8, "BIT 6, A" },
+
+	0x78 = { Test_Bit_Instruction{ .B, 7 }, 8, "BIT 7, B" },
+	0x79 = { Test_Bit_Instruction{ .C, 7 }, 8, "BIT 7, C" },
+	0x7A = { Test_Bit_Instruction{ .D, 7 }, 8, "BIT 7, D" },
+	0x7B = { Test_Bit_Instruction{ .E, 7 }, 8, "BIT 7, E" },
+	0x7C = { Test_Bit_Instruction{ .H, 7 }, 8, "BIT 7, H" },
+	0x7D = { Test_Bit_Instruction{ .L, 7 }, 8, "BIT 7, L" },
+	0x7E = { Test_Bit_Instruction{ .HL_Indirect, 7 }, 8, "BIT 7, [HL]" },
+	0x7F = { Test_Bit_Instruction{ .A, 7 }, 8, "BIT 7, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0x80 TO 0x8F      |
+      +------------------------------------+*/
+	0x80 = { Set_Bit_Instruction{ .Res, .B, 0 }, 8, "RES 0, B" },
+	0x81 = { Set_Bit_Instruction{ .Res, .C, 0 }, 8, "RES 0, C" },
+	0x82 = { Set_Bit_Instruction{ .Res, .D, 0 }, 8, "RES 0, D" },
+	0x83 = { Set_Bit_Instruction{ .Res, .E, 0 }, 8, "RES 0, E" },
+	0x84 = { Set_Bit_Instruction{ .Res, .H, 0 }, 8, "RES 0, H" },
+	0x85 = { Set_Bit_Instruction{ .Res, .L, 0 }, 8, "RES 0, L" },
+	0x86 = { Set_Bit_Instruction{ .Res, .HL_Indirect, 0 }, 16, "RES 0, [HL]" },
+	0x87 = { Set_Bit_Instruction{ .Res, .A, 0 }, 8, "RES 0, A" },
+
+	0x88 = { Set_Bit_Instruction{ .Res, .B, 1 }, 8, "RES 1, B" },
+	0x89 = { Set_Bit_Instruction{ .Res, .C, 1 }, 8, "RES 1, C" },
+	0x8A = { Set_Bit_Instruction{ .Res, .D, 1 }, 8, "RES 1, D" },
+	0x8B = { Set_Bit_Instruction{ .Res, .E, 1 }, 8, "RES 1, E" },
+	0x8C = { Set_Bit_Instruction{ .Res, .H, 1 }, 8, "RES 1, H" },
+	0x8D = { Set_Bit_Instruction{ .Res, .L, 1 }, 8, "RES 1, L" },
+	0x8E = { Set_Bit_Instruction{ .Res, .HL_Indirect, 1 }, 16, "RES 1, [HL]" },
+	0x8F = { Set_Bit_Instruction{ .Res, .A, 1 }, 8, "RES 1, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0x90 TO 0x9F      |
+      +------------------------------------+*/
+	0x90 = { Set_Bit_Instruction{ .Res, .B, 2 }, 8, "RES 2, B" },
+	0x91 = { Set_Bit_Instruction{ .Res, .C, 2 }, 8, "RES 2, C" },
+	0x92 = { Set_Bit_Instruction{ .Res, .D, 2 }, 8, "RES 2, D" },
+	0x93 = { Set_Bit_Instruction{ .Res, .E, 2 }, 8, "RES 2, E" },
+	0x94 = { Set_Bit_Instruction{ .Res, .H, 2 }, 8, "RES 2, H" },
+	0x95 = { Set_Bit_Instruction{ .Res, .L, 2 }, 8, "RES 2, L" },
+	0x96 = { Set_Bit_Instruction{ .Res, .HL_Indirect, 2 }, 16, "RES 2, [HL]" },
+	0x97 = { Set_Bit_Instruction{ .Res, .A, 2 }, 8, "RES 2, A" },
+
+	0x98 = { Set_Bit_Instruction{ .Res, .B, 3 }, 8, "RES 3, B" },
+	0x99 = { Set_Bit_Instruction{ .Res, .C, 3 }, 8, "RES 3, C" },
+	0x9A = { Set_Bit_Instruction{ .Res, .D, 3 }, 8, "RES 3, D" },
+	0x9B = { Set_Bit_Instruction{ .Res, .E, 3 }, 8, "RES 3, E" },
+	0x9C = { Set_Bit_Instruction{ .Res, .H, 3 }, 8, "RES 3, H" },
+	0x9D = { Set_Bit_Instruction{ .Res, .L, 3 }, 8, "RES 3, L" },
+	0x9E = { Set_Bit_Instruction{ .Res, .HL_Indirect, 3 }, 16, "RES 3, [HL]" },
+	0x9F = { Set_Bit_Instruction{ .Res, .A, 3 }, 8, "RES 3, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0xA0 TO 0xAF      |
+      +------------------------------------+*/
+	0xA0 = { Set_Bit_Instruction{ .Res, .B, 4 }, 8, "RES 4, B" },
+	0xA1 = { Set_Bit_Instruction{ .Res, .C, 4 }, 8, "RES 4, C" },
+	0xA2 = { Set_Bit_Instruction{ .Res, .D, 4 }, 8, "RES 4, D" },
+	0xA3 = { Set_Bit_Instruction{ .Res, .E, 4 }, 8, "RES 4, E" },
+	0xA4 = { Set_Bit_Instruction{ .Res, .H, 4 }, 8, "RES 4, H" },
+	0xA5 = { Set_Bit_Instruction{ .Res, .L, 4 }, 8, "RES 4, L" },
+	0xA6 = { Set_Bit_Instruction{ .Res, .HL_Indirect, 4 }, 16, "RES 4, [HL]" },
+	0xA7 = { Set_Bit_Instruction{ .Res, .A, 4 }, 8, "RES 4, A" },
+
+	0xA8 = { Set_Bit_Instruction{ .Res, .B, 5 }, 8, "RES 5, B" },
+	0xA9 = { Set_Bit_Instruction{ .Res, .C, 5 }, 8, "RES 5, C" },
+	0xAA = { Set_Bit_Instruction{ .Res, .D, 5 }, 8, "RES 5, D" },
+	0xAB = { Set_Bit_Instruction{ .Res, .E, 5 }, 8, "RES 5, E" },
+	0xAC = { Set_Bit_Instruction{ .Res, .H, 5 }, 8, "RES 5, H" },
+	0xAD = { Set_Bit_Instruction{ .Res, .L, 5 }, 8, "RES 5, L" },
+	0xAE = { Set_Bit_Instruction{ .Res, .HL_Indirect, 5 }, 16, "RES 5, [HL]" },
+	0xAF = { Set_Bit_Instruction{ .Res, .A, 5 }, 8, "RES 5, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0xB0 TO 0xBF      |
+      +------------------------------------+*/
+	0xB0 = { Set_Bit_Instruction{ .Res, .B, 6 }, 8, "RES 6, B" },
+	0xB1 = { Set_Bit_Instruction{ .Res, .C, 6 }, 8, "RES 6, C" },
+	0xB2 = { Set_Bit_Instruction{ .Res, .D, 6 }, 8, "RES 6, D" },
+	0xB3 = { Set_Bit_Instruction{ .Res, .E, 6 }, 8, "RES 6, E" },
+	0xB4 = { Set_Bit_Instruction{ .Res, .H, 6 }, 8, "RES 6, H" },
+	0xB5 = { Set_Bit_Instruction{ .Res, .L, 6 }, 8, "RES 6, L" },
+	0xB6 = { Set_Bit_Instruction{ .Res, .HL_Indirect, 6 }, 16, "RES 6, [HL]" },
+	0xB7 = { Set_Bit_Instruction{ .Res, .A, 6 }, 8, "RES 6, A" },
+
+	0xB8 = { Set_Bit_Instruction{ .Res, .B, 7 }, 8, "RES 7, B" },
+	0xB9 = { Set_Bit_Instruction{ .Res, .C, 7 }, 8, "RES 7, C" },
+	0xBA = { Set_Bit_Instruction{ .Res, .D, 7 }, 8, "RES 7, D" },
+	0xBB = { Set_Bit_Instruction{ .Res, .E, 7 }, 8, "RES 7, E" },
+	0xBC = { Set_Bit_Instruction{ .Res, .H, 7 }, 8, "RES 7, H" },
+	0xBD = { Set_Bit_Instruction{ .Res, .L, 7 }, 8, "RES 7, L" },
+	0xBE = { Set_Bit_Instruction{ .Res, .HL_Indirect, 7 }, 16, "RES 7, [HL]" },
+	0xBF = { Set_Bit_Instruction{ .Res, .A, 7 }, 8, "RES 7, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0xC0 TO 0xCF      |
+      +------------------------------------+*/
+	0xC0 = { Set_Bit_Instruction{ .Set, .B, 0 }, 8, "SET 0, B" },
+	0xC1 = { Set_Bit_Instruction{ .Set, .C, 0 }, 8, "SET 0, C" },
+	0xC2 = { Set_Bit_Instruction{ .Set, .D, 0 }, 8, "SET 0, D" },
+	0xC3 = { Set_Bit_Instruction{ .Set, .E, 0 }, 8, "SET 0, E" },
+	0xC4 = { Set_Bit_Instruction{ .Set, .H, 0 }, 8, "SET 0, H" },
+	0xC5 = { Set_Bit_Instruction{ .Set, .L, 0 }, 8, "SET 0, L" },
+	0xC6 = { Set_Bit_Instruction{ .Set, .HL_Indirect, 0 }, 16, "SET 0, [HL]" },
+	0xC7 = { Set_Bit_Instruction{ .Set, .A, 0 }, 8, "SET 0, A" },
+
+	0xC8 = { Set_Bit_Instruction{ .Set, .B, 1 }, 8, "SET 1, B" },
+	0xC9 = { Set_Bit_Instruction{ .Set, .C, 1 }, 8, "SET 1, C" },
+	0xCA = { Set_Bit_Instruction{ .Set, .D, 1 }, 8, "SET 1, D" },
+	0xCB = { Set_Bit_Instruction{ .Set, .E, 1 }, 8, "SET 1, E" },
+	0xCC = { Set_Bit_Instruction{ .Set, .H, 1 }, 8, "SET 1, H" },
+	0xCD = { Set_Bit_Instruction{ .Set, .L, 1 }, 8, "SET 1, L" },
+	0xCE = { Set_Bit_Instruction{ .Set, .HL_Indirect, 1 }, 16, "SET 1, [HL]" },
+	0xCF = { Set_Bit_Instruction{ .Set, .A, 1 }, 8, "SET 1, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0xD0 TO 0xDF      |
+      +------------------------------------+*/
+	0xD0 = { Set_Bit_Instruction{ .Set, .B, 2 }, 8, "SET 2, B" },
+	0xD1 = { Set_Bit_Instruction{ .Set, .C, 2 }, 8, "SET 2, C" },
+	0xD2 = { Set_Bit_Instruction{ .Set, .D, 2 }, 8, "SET 2, D" },
+	0xD3 = { Set_Bit_Instruction{ .Set, .E, 2 }, 8, "SET 2, E" },
+	0xD4 = { Set_Bit_Instruction{ .Set, .H, 2 }, 8, "SET 2, H" },
+	0xD5 = { Set_Bit_Instruction{ .Set, .L, 2 }, 8, "SET 2, L" },
+	0xD6 = { Set_Bit_Instruction{ .Set, .HL_Indirect, 2 }, 16, "SET 2, [HL]" },
+	0xD7 = { Set_Bit_Instruction{ .Set, .A, 2 }, 8, "SET 2, A" },
+
+	0xD8 = { Set_Bit_Instruction{ .Set, .B, 3 }, 8, "SET 3, B" },
+	0xD9 = { Set_Bit_Instruction{ .Set, .C, 3 }, 8, "SET 3, C" },
+	0xDA = { Set_Bit_Instruction{ .Set, .D, 3 }, 8, "SET 3, D" },
+	0xDB = { Set_Bit_Instruction{ .Set, .E, 3 }, 8, "SET 3, E" },
+	0xDC = { Set_Bit_Instruction{ .Set, .H, 3 }, 8, "SET 3, H" },
+	0xDD = { Set_Bit_Instruction{ .Set, .L, 3 }, 8, "SET 3, L" },
+	0xDE = { Set_Bit_Instruction{ .Set, .HL_Indirect, 3 }, 16, "SET 3, [HL]" },
+	0xDF = { Set_Bit_Instruction{ .Set, .A, 3 }, 8, "SET 3, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0xE0 TO 0xEF      |
+      +------------------------------------+*/
+	0xE0 = { Set_Bit_Instruction{ .Set, .B, 4 }, 8, "SET 4, B" },
+	0xE1 = { Set_Bit_Instruction{ .Set, .C, 4 }, 8, "SET 4, C" },
+	0xE2 = { Set_Bit_Instruction{ .Set, .D, 4 }, 8, "SET 4, D" },
+	0xE3 = { Set_Bit_Instruction{ .Set, .E, 4 }, 8, "SET 4, E" },
+	0xE4 = { Set_Bit_Instruction{ .Set, .H, 4 }, 8, "SET 4, H" },
+	0xE5 = { Set_Bit_Instruction{ .Set, .L, 4 }, 8, "SET 4, L" },
+	0xE6 = { Set_Bit_Instruction{ .Set, .HL_Indirect, 4 }, 16, "SET 4, [HL]" },
+	0xE7 = { Set_Bit_Instruction{ .Set, .A, 4 }, 8, "SET 4, A" },
+
+	0xE8 = { Set_Bit_Instruction{ .Set, .B, 5 }, 8, "SET 5, B" },
+	0xE9 = { Set_Bit_Instruction{ .Set, .C, 5 }, 8, "SET 5, C" },
+	0xEA = { Set_Bit_Instruction{ .Set, .D, 5 }, 8, "SET 5, D" },
+	0xEB = { Set_Bit_Instruction{ .Set, .E, 5 }, 8, "SET 5, E" },
+	0xEC = { Set_Bit_Instruction{ .Set, .H, 5 }, 8, "SET 5, H" },
+	0xED = { Set_Bit_Instruction{ .Set, .L, 5 }, 8, "SET 5, L" },
+	0xEE = { Set_Bit_Instruction{ .Set, .HL_Indirect, 5 }, 16, "SET 5, [HL]" },
+	0xEF = { Set_Bit_Instruction{ .Set, .A, 5 }, 8, "SET 5, A" },
+
+	/*+------------------------------------+
+      | INSTRUCTION FROM 0xF0 TO 0xFF      |
+      +------------------------------------+*/
+	0xF0 = { Set_Bit_Instruction{ .Set, .B, 6 }, 8, "SET 6, B" },
+	0xF1 = { Set_Bit_Instruction{ .Set, .C, 6 }, 8, "SET 6, C" },
+	0xF2 = { Set_Bit_Instruction{ .Set, .D, 6 }, 8, "SET 6, D" },
+	0xF3 = { Set_Bit_Instruction{ .Set, .E, 6 }, 8, "SET 6, E" },
+	0xF4 = { Set_Bit_Instruction{ .Set, .H, 6 }, 8, "SET 6, H" },
+	0xF5 = { Set_Bit_Instruction{ .Set, .L, 6 }, 8, "SET 6, L" },
+	0xF6 = { Set_Bit_Instruction{ .Set, .HL_Indirect, 6 }, 16, "SET 6, [HL]" },
+	0xF7 = { Set_Bit_Instruction{ .Set, .A, 6 }, 8, "SET 6, A" },
+
+	0xF8 = { Set_Bit_Instruction{ .Set, .B, 7 }, 8, "SET 7, B" },
+	0xF9 = { Set_Bit_Instruction{ .Set, .C, 7 }, 8, "SET 7, C" },
+	0xFA = { Set_Bit_Instruction{ .Set, .D, 7 }, 8, "SET 7, D" },
+	0xFB = { Set_Bit_Instruction{ .Set, .E, 7 }, 8, "SET 7, E" },
+	0xFC = { Set_Bit_Instruction{ .Set, .H, 7 }, 8, "SET 7, H" },
+	0xFD = { Set_Bit_Instruction{ .Set, .L, 7 }, 8, "SET 7, L" },
+	0xFE = { Set_Bit_Instruction{ .Set, .HL_Indirect, 7 }, 16, "SET 7, [HL]" },
+	0xFF = { Set_Bit_Instruction{ .Set, .A, 7 }, 8, "SET 7, A" },
 }

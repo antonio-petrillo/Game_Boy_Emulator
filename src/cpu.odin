@@ -1,5 +1,6 @@
 package main
 
+import "core:flags"
 import "core:fmt"
 import "core:os"
 import "core:log"
@@ -78,6 +79,15 @@ cpu_step :: proc(cpu: ^CPU_LR3590) {
 	instr := INSTRUCTIONS_TABLE[opcode]
 	cpu.t_cycles += instr.t_cycles
 
+	when DEBUG_INSTR {
+		instructions_count += 1
+		if instr.disassembly == "" {
+			log.warnf("[instruction count: %06d], OPCODE[0x%02x]: NOT IMPLEMENTED YET", instructions_count, opcode)
+			os.exit(-1)
+		}
+		log.infof("[instruction count: %06d], OPCODE[0x%02x]: %s", instructions_count, opcode, instr.disassembly)
+	}
+
 	switch kind in instr.kind {
 	case NOP_Instruction: // NO OP
 	case Ret_Instruction:
@@ -113,17 +123,233 @@ cpu_step :: proc(cpu: ^CPU_LR3590) {
 		ldh_instruction(cpu, kind)
 	case Stack_Instruction:
 		stack_instruction(cpu, kind)
+	case Math_R8_R8_Instruction:
+		math_instruction(cpu, kind)
+	case Prefix:
+
+		prefix_instruction(cpu)
+	}
+
+	when DEBUG_INSTR {
+		file := (^os.File)(context.user_ptr)
+		dump_cpu_to_file(cpu, file)
+	}
+}
+
+shift_instruction :: proc(cpu: ^CPU_LR3590, instr: Shift_Instruction) {
+	value: u8
+	switch instr.arg {
+	case .A: value = cpu.regs.r.a
+	case .B: value = cpu.regs.r.b
+	case .C: value = cpu.regs.r.c
+	case .D: value = cpu.regs.r.d
+	case .E: value = cpu.regs.r.e
+	case .H: value = cpu.regs.r.h
+	case .L: value = cpu.regs.r.l
+	case .HL_Indirect: value = bus_read_u8(&cpu.bus, cpu.regs.l.hl)
+	}
+
+	carry_bit: u8
+
+	switch instr.kind {
+	case .Logical:
+		switch instr.rotation_kind {
+		case .Left: panic("Logical Shift is only Right (clockwise)")
+		case .Right:
+			set_flag(cpu, .C, value & 0x1 != 0)
+			value >>= 1
+		}
+	case .Arithmetic:
+		switch instr.rotation_kind {
+		case .Left:
+			set_flag(cpu, .C, value & 0x80 != 0)
+			value <<= 1
+		case .Right:
+			msb := value & 0x80
+			set_flag(cpu, .C, value & 0x01 != 0)
+			value >>= 1
+			value |= msb
+		}
+	}
+
+	set_flag(cpu, .N, false)
+	set_flag(cpu, .H, false)
+	set_flag(cpu, .Z, value == 0)
+
+	switch instr.arg {
+	case .A: cpu.regs.r.a = value
+	case .B: cpu.regs.r.b = value
+	case .C: cpu.regs.r.c = value
+	case .D: cpu.regs.r.d = value
+	case .E: cpu.regs.r.e = value
+	case .H: cpu.regs.r.h = value
+	case .L: cpu.regs.r.l = value
+	case .HL_Indirect: bus_write_u8(&cpu.bus, cpu.regs.l.hl, value)
+	}
+}
+
+swap_instruction :: proc(cpu: ^CPU_LR3590, instr: Swap_Instruction) {
+	value: u8
+	switch instr.arg {
+	case .A: value = cpu.regs.r.a
+	case .B: value = cpu.regs.r.b
+	case .C: value = cpu.regs.r.c
+	case .D: value = cpu.regs.r.d
+	case .E: value = cpu.regs.r.e
+	case .H: value = cpu.regs.r.h
+	case .L: value = cpu.regs.r.l
+	case .HL_Indirect: value = bus_read_u8(&cpu.bus, cpu.regs.l.hl)
+	}
+
+	value = ((value & 0x0F) << 0x4) | ((value & 0xF0) >> 0x4)
+
+	switch instr.arg {
+	case .A: cpu.regs.r.a = value
+	case .B: cpu.regs.r.b = value
+	case .C: cpu.regs.r.c = value
+	case .D: cpu.regs.r.d = value
+	case .E: cpu.regs.r.e = value
+	case .H: cpu.regs.r.h = value
+	case .L: cpu.regs.r.l = value
+	case .HL_Indirect: bus_write_u8(&cpu.bus, cpu.regs.l.hl, value)
+	}
+}
+
+rotate_instruction :: proc(cpu: ^CPU_LR3590, instr: Rotate_Instruction) {
+	value: u8
+	switch instr.arg {
+	case .A: value = cpu.regs.r.a
+	case .B: value = cpu.regs.r.b
+	case .C: value = cpu.regs.r.c
+	case .D: value = cpu.regs.r.d
+	case .E: value = cpu.regs.r.e
+	case .H: value = cpu.regs.r.h
+	case .L: value = cpu.regs.r.l
+	case .HL_Indirect: value = bus_read_u8(&cpu.bus, cpu.regs.l.hl)
+	}
+
+	carry_bit: u8
+	switch instr.kind {
+	case .Left:
+		if instr.use_carry_bit_from_byte {
+			carry_bit = (value & 0x80) >> 0x7
+		} else {
+			carry_bit = is_flag_set(cpu, .C) ? 1 : 0
+		}
+		value <<= 1
+		value += carry_bit
+	case .Right:
+		if instr.use_carry_bit_from_byte {
+			carry_bit = value & 0x01
+			value >>= 1
+
+			set_flag(cpu, .C, carry_bit != 0)
+			if carry_bit != 0 {
+				value |= 0x80
+			}
+		} else {
+			value >>= 1
+			if is_flag_set(cpu, .C) {
+				value |= 0x80
+			}
+			set_flag(cpu, .C, value & 0x01 != 0)
+		}
+	}
+	set_flag(cpu, .N, false)
+	set_flag(cpu, .H, false)
+	set_flag(cpu, .Z, value == 0)
+
+	switch instr.arg {
+	case .A: cpu.regs.r.a = value
+	case .B: cpu.regs.r.b = value
+	case .C: cpu.regs.r.c = value
+	case .D: cpu.regs.r.d = value
+	case .E: cpu.regs.r.e = value
+	case .H: cpu.regs.r.h = value
+	case .L: cpu.regs.r.l = value
+	case .HL_Indirect: bus_write_u8(&cpu.bus, cpu.regs.l.hl, value)
+	}
+}
+
+set_bit_instruction :: proc(cpu: ^CPU_LR3590, instr: Set_Bit_Instruction) {
+	assert(instr.bit_index >= 0 && instr.bit_index < 8)
+	switch instr.op {
+	case .Set:
+		switch instr.arg {
+		case .A: cpu.regs.r.a |= 1 << instr.bit_index
+		case .B: cpu.regs.r.b |= 1 << instr.bit_index
+		case .C: cpu.regs.r.c |= 1 << instr.bit_index
+		case .D: cpu.regs.r.d |= 1 << instr.bit_index
+		case .E: cpu.regs.r.e |= 1 << instr.bit_index
+		case .H: cpu.regs.r.h |= 1 << instr.bit_index
+		case .L: cpu.regs.r.l |= 1 << instr.bit_index
+		case .HL_Indirect:
+			hl_indirect := bus_read_u8(&cpu.bus, cpu.regs.l.hl)
+			hl_indirect |= 1 << instr.bit_index
+			bus_write_u8(&cpu.bus, cpu.regs.l.hl, hl_indirect)
+		}
+	case .Res:
+		switch instr.arg {
+		case .A: cpu.regs.r.a &~= 1 << instr.bit_index
+		case .B: cpu.regs.r.b &~= 1 << instr.bit_index
+		case .C: cpu.regs.r.c &~= 1 << instr.bit_index
+		case .D: cpu.regs.r.d &~= 1 << instr.bit_index
+		case .E: cpu.regs.r.e &~= 1 << instr.bit_index
+		case .H: cpu.regs.r.h &~= 1 << instr.bit_index
+		case .L: cpu.regs.r.l &~= 1 << instr.bit_index
+		case .HL_Indirect:
+			hl_indirect := bus_read_u8(&cpu.bus, cpu.regs.l.hl)
+			hl_indirect &~= 1 << instr.bit_index
+			bus_write_u8(&cpu.bus, cpu.regs.l.hl, hl_indirect)
+		}
+	}
+}
+
+test_bit_instruction :: proc(cpu: ^CPU_LR3590, instr: Test_Bit_Instruction) {
+	assert(instr.bit_index >= 0 && instr.bit_index < 8)
+	set_flag(cpu, .N, false)
+	set_flag(cpu, .C, true)
+
+	value: u8
+	switch instr.arg {
+	case .A: value = cpu.regs.r.a
+	case .B: value = cpu.regs.r.b
+	case .C: value = cpu.regs.r.c
+	case .D: value = cpu.regs.r.d
+	case .E: value = cpu.regs.r.e
+	case .H: value = cpu.regs.r.h
+	case .L: value = cpu.regs.r.l
+	case .HL_Indirect: value = bus_read_u8(&cpu.bus, cpu.regs.l.hl)
+	}
+
+	set_flag(cpu, .Z, value & (1 << instr.bit_index) == 0)
+}
+
+prefix_instruction :: proc(cpu: ^CPU_LR3590) {
+	opcode := fetch_u8(cpu)
+	instr := PREFIX_INSTRUCTIONS_TABLE[opcode]
+	cpu.t_cycles += instr.t_cycles
+
+	switch kind in instr.kind {
+	case Test_Bit_Instruction:
+		test_bit_instruction(cpu, kind)
+	case Swap_Instruction:
+		swap_instruction(cpu, kind)
+	case Rotate_Instruction:
+		rotate_instruction(cpu, kind)
+	case Set_Bit_Instruction:
+		set_bit_instruction(cpu, kind)
+	case Shift_Instruction:
+		shift_instruction(cpu, kind)
 	}
 
 	when DEBUG_INSTR {
 		instructions_count += 1
 		if instr.disassembly == "" {
-			log.warnf("OPCODE[0x%02x]: NOT IMPLEMENTED YET", opcode)
+			log.warnf("[instruction count: %06d], PREFIX -> OPCODE[0x%02x]: NOT IMPLEMENTED YET", instructions_count, opcode)
 			os.exit(-1)
 		}
-		log.infof("[instr num %06d], OPCODE[0x%02x]: %s", instructions_count, opcode, instr.disassembly)
-		file := (^os.File)(context.user_ptr)
-		dump_cpu_to_file(cpu, file)
+		log.infof("[instruction count: %06d], PREFIX -> OPCODE[0x%02x]: %s", instructions_count, opcode, instr.disassembly)
 	}
 }
 
@@ -247,8 +473,8 @@ increment_r16 :: proc(cpu: ^CPU_LR3590, op: Increment_Kind, arg: Increment_Arg_1
 load_a_a16 :: proc(cpu: ^CPU_LR3590, instr: Load_A_A16) {
 	value := fetch_u16(cpu)
 	switch instr {
-	case .A: cpu.regs.r.a = bus_read_u8(&cpu.bus, value)
-	case .A16: bus_write_u8(&cpu.bus, value, cpu.regs.r.a)
+	case .A: bus_write_u8(&cpu.bus, value, cpu.regs.r.a)
+	case .A16: cpu.regs.r.a = bus_read_u8(&cpu.bus, value)
 	}
 }
 
@@ -353,6 +579,56 @@ branch_instruction :: proc(cpu: ^CPU_LR3590, instr: Branch_Instruction) -> bool 
 	}
 
 	return true
+}
+
+math_instruction :: proc(cpu: ^CPU_LR3590, instr: Math_R8_R8_Instruction) {
+	a := cpu.regs.r.a
+	arg: u8
+	switch instr.arg {
+	case .A: arg = cpu.regs.r.a
+	case .B: arg = cpu.regs.r.b
+	case .C: arg = cpu.regs.r.c
+	case .D: arg = cpu.regs.r.d
+	case .E: arg = cpu.regs.r.e
+	case .H: arg = cpu.regs.r.h
+	case .L: arg = cpu.regs.r.l
+	case .HL_Indirect: arg = bus_read_u8(&cpu.bus, cpu.regs.l.hl)
+	case .N8: arg = fetch_u8(cpu)
+	}
+
+	result: u8
+	carry, half_carry: bool
+	switch instr.op {
+	case .Add: result = a + arg
+	case .Sub, .Cp: result = a - arg
+	case .And: result = a & arg
+	case .Or: result = a | arg
+	case .Adc: result = a + arg + (is_flag_set(cpu, .C) ? 1 : 0)
+	case .Sbc:  result = a - arg + (is_flag_set(cpu, .C) ? 1 : 0)
+	case .Xor: result = a ~ arg
+	}
+	carry = (a ~ arg ~ result) & 0x80 == 0x80
+	half_carry = (a ~ arg ~ result) & 0x10 == 0x10
+
+	for action, flag in instr.flag_actions {
+		switch action {
+		case .None: // Leave Flag invariated
+		case .One: set_flag(cpu, flag, true)
+		case .Zero: set_flag(cpu, flag, false)
+		case .Compute:
+			switch flag {
+			case .N: panic("CPU flag 'N' has always hardcoded values")
+			case .Z: set_flag(cpu, .Z, result == 0)
+			case .C: set_flag(cpu, .C, carry)
+			case .H: set_flag(cpu, .H, half_carry)
+			}
+		}
+	}
+
+	if instr.op != .Cp {
+		cpu.regs.r.a = result
+	}
+
 }
 
 // NOTE: to use with gameboy_doctor
