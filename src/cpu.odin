@@ -126,13 +126,52 @@ cpu_step :: proc(cpu: ^CPU_LR3590) {
 	case Math_R8_R8_Instruction:
 		math_instruction(cpu, kind)
 	case Prefix:
-
 		prefix_instruction(cpu)
+	case Rotate_Instruction_A: {
+		rotate_instruction_a(cpu, kind)
+	}
 	}
 
 	when DEBUG_INSTR {
 		file := (^os.File)(context.user_ptr)
 		dump_cpu_to_file(cpu, file)
+	}
+}
+
+rotate_instruction_a :: proc(cpu: ^CPU_LR3590, instr: Rotate_Instruction_A) {
+	set_flag(cpu, .Z, false)
+	set_flag(cpu, .N, false)
+	set_flag(cpu, .H, false)
+
+	switch instr.kind {
+	case .Left:
+		if instr.use_carry_bit_from_byte {
+			bit_carry := (cpu.regs.r.a & 0x80) != 0
+			set_flag(cpu, .C, bit_carry)
+			cpu.regs.r.a <<= 1
+
+			if bit_carry { cpu.regs.r.a |= 0x01 }
+		} else {
+			carry := u8(is_flag_set(cpu, .C) ? 0x01 : 0x00)
+			set_flag(cpu, .C, cpu.regs.r.a & 0x80 != 0)
+
+			cpu.regs.r.a <<= 1
+			cpu.regs.r.a |= carry
+		}
+	case .Right:
+		if instr.use_carry_bit_from_byte {
+			bit_carry := (cpu.regs.r.a & 0x01) != 0
+			set_flag(cpu, .C, bit_carry)
+			cpu.regs.r.a >>= 1
+
+			if bit_carry { cpu.regs.r.a |= 0x80 }
+		} else {
+			carry := u8(is_flag_set(cpu, .C) ? 0x80 : 0x00)
+			set_flag(cpu, .C, cpu.regs.r.a & 0x01 != 0)
+
+			cpu.regs.r.a >>= 1
+			cpu.regs.r.a |= carry
+		}
 	}
 }
 
@@ -228,31 +267,32 @@ rotate_instruction :: proc(cpu: ^CPU_LR3590, instr: Rotate_Instruction) {
 	case .HL_Indirect: value = bus_read_u8(&cpu.bus, cpu.regs.l.hl)
 	}
 
-	carry_bit: u8
 	switch instr.kind {
 	case .Left:
 		if instr.use_carry_bit_from_byte {
-			carry_bit = (value & 0x80) >> 0x7
+			carry := (value & 0x80) >> 0x7
+			value <<= 1
+			value += carry
 		} else {
-			carry_bit = is_flag_set(cpu, .C) ? 1 : 0
+			carry := is_flag_set(cpu, .C)
+			set_flag(cpu, .C, value & 0x80 != 0)
+			value <<= 1
+			if carry { value |= 0x01 }
 		}
-		value <<= 1
-		value += carry_bit
 	case .Right:
 		if instr.use_carry_bit_from_byte {
-			carry_bit = value & 0x01
+			carry := value & 0x01
 			value >>= 1
 
-			set_flag(cpu, .C, carry_bit != 0)
-			if carry_bit != 0 {
+			set_flag(cpu, .C, carry != 0)
+			if carry != 0 {
 				value |= 0x80
 			}
 		} else {
-			value >>= 1
-			if is_flag_set(cpu, .C) {
-				value |= 0x80
-			}
+			carry := is_flag_set(cpu, .C)
 			set_flag(cpu, .C, value & 0x01 != 0)
+			value >>= 1
+			if carry { value |= 0x80 }
 		}
 	}
 	set_flag(cpu, .N, false)
@@ -512,10 +552,10 @@ load_r8_r8 :: proc(cpu: ^CPU_LR3590, instr: Load_R8_R8) {
 	case .DE: bus_write_u8(&cpu.bus, cpu.regs.l.de, src)
 	case .HL: bus_write_u8(&cpu.bus, cpu.regs.l.hl, src)
 	case .HL_Plus:
-		bus_write_u8(&cpu.bus, cpu.regs.l.bc, src)
+		bus_write_u8(&cpu.bus, cpu.regs.l.hl, src)
 		cpu.regs.l.hl += 1
 	case .HL_Minus:
-		bus_write_u8(&cpu.bus, cpu.regs.l.bc, src)
+		bus_write_u8(&cpu.bus, cpu.regs.l.hl, src)
 		cpu.regs.l.hl -= 1
 	}
 }
@@ -599,16 +639,31 @@ math_instruction :: proc(cpu: ^CPU_LR3590, instr: Math_R8_R8_Instruction) {
 	result: u8
 	carry, half_carry: bool
 	switch instr.op {
-	case .Add: result = a + arg
-	case .Sub, .Cp: result = a - arg
-	case .And: result = a & arg
-	case .Or: result = a | arg
-	case .Adc: result = a + arg + (is_flag_set(cpu, .C) ? 1 : 0)
-	case .Sbc:  result = a - arg + (is_flag_set(cpu, .C) ? 1 : 0)
-	case .Xor: result = a ~ arg
+	case .Add:
+		result = a + arg
+		carry = (a ~ arg ~ result) & 0x80 == 0x80
+		half_carry = (a ~ arg ~ result) & 0x10 == 0x10
+	case .Sub, .Cp:
+		half_carry = (a & 0x0F) < (arg & 0x0F)
+		carry = a < arg
+		result = a - arg
+	case .And:
+		result = a & arg
+	case .Or:
+		result = a | arg
+	case .Adc:
+		arg += (is_flag_set(cpu, .C) ? 1 : 0)
+		result = a + arg
+		carry = (a ~ arg ~ result) & 0x80 == 0x80
+		half_carry = (a ~ arg ~ result) & 0x10 == 0x10
+	case .Sbc:
+		arg += (is_flag_set(cpu, .C) ? 1 : 0)
+		half_carry = (a & 0x0F) < (arg & 0x0F)
+		carry = a < arg
+		result = a - arg
+	case .Xor:
+		result = a ~ arg
 	}
-	carry = (a ~ arg ~ result) & 0x80 == 0x80
-	half_carry = (a ~ arg ~ result) & 0x10 == 0x10
 
 	for action, flag in instr.flag_actions {
 		switch action {

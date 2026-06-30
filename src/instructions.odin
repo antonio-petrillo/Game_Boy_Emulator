@@ -72,6 +72,12 @@ Math_R8_R8_Instruction :: struct {
 
 Prefix :: distinct struct {}
 
+Rotation_Kind :: enum { Left, Right }
+Rotate_Instruction_A :: struct {
+	kind: Rotation_Kind,
+	use_carry_bit_from_byte: bool,
+}
+
 Instruction_Kind :: union {
 	NOP_Instruction,
 	Branch_Instruction,
@@ -86,6 +92,7 @@ Instruction_Kind :: union {
 	Stack_Instruction,
 	Math_R8_R8_Instruction,
 	Prefix,
+	Rotate_Instruction_A,
 }
 
 Instruction :: struct {
@@ -106,11 +113,13 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0x04 = { Increment_Instruction{ .Inc, .B }, 4, "INC B" },
 	0x05 = { Increment_Instruction{ .Dec, .B }, 4, "DEC B" },
 	0x06 = { Load_R8_R8{ .B, .N8 }, 8, "LD B, n8" },
+	0x07 = { Rotate_Instruction_A{ .Left, true }, 4, "RLCA" },
 	0x08 = { Load_16_Instruction{ .A16 }, 20, "LD [a16], SP" },
 	0x0A = { Load_R8_R8{ .A, .BC }, 8, "LD C, n8" },
 	0x0C = { Increment_Instruction{ .Inc, .C }, 4, "INC C" },
 	0x0D = { Increment_Instruction{ .Dec, .C }, 4, "DEC C" },
 	0x0E = { Load_R8_R8{ .C, .N8 }, 8, "LD C, n8" },
+	0x0F = { Rotate_Instruction_A{ .Right, true }, 4, "RRCA" },
 
 	/*+------------------------------------+
       | INSTRUCTION FROM 0x10 TO 0x1F      |
@@ -121,11 +130,13 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0x14 = { Increment_Instruction{ .Inc, .D }, 4, "INC D" },
 	0x15 = { Increment_Instruction{ .Dec, .D }, 4, "DEC D" },
 	0x16 = { Load_R8_R8{ .D, .N8 }, 8, "LD D, n8" },
+	0x17 = { Rotate_Instruction_A{ .Left, false }, 4, "RLA" },
 	0x18 = { Branch_Instruction{ .JR, .None, .E8, 12 }, 12, "JR e8" },
 	0x1A = { Load_R8_R8{ .A, .DE }, 8, "LD A, [DE]" },
 	0x1C = { Increment_Instruction{ .Inc, .E }, 4, "INC E" },
 	0x1D = { Increment_Instruction{ .Dec, .E }, 4, "DEC E" },
 	0x1E = { Load_R8_R8{ .E, .N8 }, 8, "LD E, n8" },
+	0x1F = { Rotate_Instruction_A{ .Right, false }, 4, "RRA" },
 
 	/*+------------------------------------+
       | INSTRUCTION FROM 0x20 TO 0x2F      |
@@ -150,8 +161,8 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0x31 = { Load_16_Instruction{ .SP }, 12,  "LD SP, n16"},
 	0x32 = { Load_R8_R8{ .HL_Minus, .A }, 8, "LD [HL-], A" },
 	0x33 = { Increment_Instruction{ .Inc, .SP }, 8, "INC SP" },
-	0x34 = { Increment_Instruction{ .Inc, .HL }, 12, "INC [HL]" },
-	0x35 = { Increment_Instruction{ .Dec, .HL }, 12, "DEC [HL]" },
+	0x34 = { Increment_Instruction{ .Inc, .HL_Indirect }, 12, "INC [HL]" },
+	0x35 = { Increment_Instruction{ .Dec, .HL_Indirect }, 12, "DEC [HL]" },
 	0x36 = { Load_R8_R8{ .HL, .N8 }, 8, "LD [HL], n8" },
 	0x38 = { Branch_Instruction{ .JR, .Carry, .E8, 12 }, 8, "JR C, e8" },
 	0x3A = { Load_R8_R8{ .A, .HL_Minus }, 8, "LD A, [HL-]" },
@@ -380,11 +391,10 @@ INSTRUCTIONS_TABLE := [0x100]Instruction {
 	0xF8 = { .HL, 12, "LD HL, SP + e8" },
 	0xF9 = { .HL, 12, "LD SP, HL" },
 	0xFA = { .A16, 16, "LD A, [a16]" },
-	0xFE = { Math_R8_R8_Instruction{ .Cp, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .N8 }, 8, "CP A, n8" },
 	0xFB = { .EI, 4, "EI" },
+	0xFE = { Math_R8_R8_Instruction{ .Cp, { .Z = .Compute, .N = .One, .H = .Compute, .C = .Compute }, .N8 }, 8, "CP A, n8" },
 }
 
-Rotation_Kind :: enum { Left, Right }
 Rotate_Arg :: enum { A, B, C, D, E, H, L, HL_Indirect }
 Rotate_Instruction :: struct {
 	kind: Rotation_Kind,
@@ -434,6 +444,7 @@ Prefix_Instruction :: struct {
 	disassembly: string,
 }
 
+// TODO: warning to large may cause problem
 PREFIX_INSTRUCTIONS_TABLE := [0x100]Prefix_Instruction {
 	/*+------------------------------------+
       | INSTRUCTION FROM 0x00 TO 0x0F      |
