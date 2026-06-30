@@ -68,7 +68,7 @@ cpu_step :: proc(cpu: ^CPU_LR3590) {
 	cpu.t_cycles += instr.t_cycles
 
 	switch kind in instr.kind {
-	case NOP_Instruction:
+	case NOP_Instruction: // NO OP
 	case Jump_Instruction:
 		jump_to_else := jump_instrcution(cpu, kind)
 		if jump_to_else {
@@ -109,11 +109,18 @@ cpu_step :: proc(cpu: ^CPU_LR3590) {
 }
 
 load_hl_sp :: proc(cpu: ^CPU_LR3590, instr: Load_HL_SP) {
+	set_flag(cpu, .Z, false)
+	set_flag(cpu, .N, false)
 	switch instr {
 	case .HL:
+
 		e8 := i8(fetch_u8(cpu))
-		value := u16(i16(cpu.sp) + i16(e8))
-		cpu.regs.l.hl = value
+		value: int = int(cpu.sp) + int(e8)
+
+		set_flag(cpu, .C, value & 0xFFFF000 != 0)
+		set_flag(cpu, .H, ((cpu.sp & 0x0F) + u16(e8 & 0x0F)) > 0x0F)
+
+		cpu.regs.l.hl = u16(value & 0x0000FFFF)
 	case .SP:
 		cpu.sp = cpu.regs.l.hl
 	}

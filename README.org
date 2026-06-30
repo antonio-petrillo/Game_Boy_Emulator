@@ -1,0 +1,4 @@
+#+title: README
+#+author: Antonio Petrillo
+
+This is a Game Boy emulator written in odin. 
