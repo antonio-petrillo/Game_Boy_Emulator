@@ -1,79 +1,88 @@
 package main
 
+import "core:fmt"
+
 Bus :: struct {
-	cart: ^Cartridge,
-	vram: [0x2000]u8,
-	eram: [0x2000]u8,
-	wram: [0x2000]u8,
-	oam: [0xA0]u8,
-	io: [0x80]u8,
-	hram: [0xFFFE - 0xFF80 + 0x1]u8,
-	ie: u8,
+	cartridge: Cartridge,
+	vram: [0x2000]u8, // 0x8000 - 0x9FFF
+	wram: [0x2000]u8, // 0xC000 - 0xDFFF
+	oam:  [0xA0]u8,   // 0xFE00 - 0xFE9F
+	io:   [0x80]u8,   // 0xFF00 - 0xFF7F
+	hram: [0x7F]u8,   // 0xFF80 - 0xFFFE
+	ie: u8,           // 0xFFFF
 }
 
-bus_read_u8 :: proc(bus: ^Bus, addr: u16) -> (n: u8) {
-	when DEBUG_INSTR {
-		if addr == 0xFF44 { return 0x90 }
-	}
-
+bus_read :: proc(bus: ^Bus, addr: u16) -> u8 {
 	switch addr {
 	case 0x0000 ..= 0x7FFF:
-		n = cartridge_read(bus.cart, addr)
+		return cart_read(&bus.cartridge, addr)
 	case 0x8000 ..= 0x9FFF:
-		n = bus.vram[addr - 0x8000]
+		return bus.vram[addr - 0x8000]
 	case 0xA000 ..= 0xBFFF:
-		n = bus.eram[addr - 0xA000]
+		return cart_read(&bus.cartridge, addr)
 	case 0xC000 ..= 0xDFFF:
-		n = bus.wram[addr - 0xC000]
-	case 0xE000 ..= 0xFDFF:
-		n = bus.wram[addr - 0xE000] // echo
+		return bus.wram[addr - 0xC000]
+	case 0xE000 ..= 0xFDFF: // ECHO RAM
+		return bus.wram[addr - 0xE000]
 	case 0xFE00 ..= 0xFE9F:
-		n = bus.oam[addr - 0xFE00]
+		return bus.oam[addr - 0xFE00]
 	case 0xFEA0 ..= 0xFEFF:
-		n = 0xFF // unusable
+		when ODIN_DEBUG {
+			fmt.eprintfln("Reat to unusable memory 0x%04x [0xFEA0 ..= 0XFEFF]", addr)
+		}
+		return 0xFF
 	case 0xFF00 ..= 0xFF7F:
-		n = bus.io[addr - 0xFF00]
+		if addr == 0xFF44 {
+			/* NOTE LY STUB */
+			return 0x90
+		}
+		return bus.io[addr - 0xFF00]
 	case 0xFF80 ..= 0xFFFE:
-		n = bus.hram[addr - 0xFF80]
+		return bus.hram[addr - 0xFF80]
 	case 0xFFFF:
-		n = bus.ie
+		return bus.ie
 	}
-	return
 }
 
-bus_write_u8 :: proc(bus: ^Bus, addr: u16, value: u8) {
+bus_write :: proc(bus: ^Bus, addr: u16, value: u8) {
 	switch addr {
 	case 0x0000 ..= 0x7FFF:
-		cartridge_write(bus.cart, addr, value)
+		cart_write(&bus.cartridge, addr, value)
 	case 0x8000 ..= 0x9FFF:
 		bus.vram[addr - 0x8000] = value
 	case 0xA000 ..= 0xBFFF:
-		bus.eram[addr - 0xA000] = value
+		cart_write(&bus.cartridge, addr, value)
 	case 0xC000 ..= 0xDFFF:
 		bus.wram[addr - 0xC000] = value
-	case 0xE000 ..= 0xFDFF:
-		bus.wram[addr - 0xE000] = value // echo
+	case 0xE000 ..= 0xFDFF: // ECHO ram
+		bus.wram[addr - 0xE000] = value
 	case 0xFE00 ..= 0xFE9F:
 		bus.oam[addr - 0xFE00] = value
 	case 0xFEA0 ..= 0xFEFF:
-		// unusable
+		when ODIN_DEBUG {
+			fmt.eprintfln("Write to unusable memory 0x%04x [0xFEA0 ..= 0XFEFF]", addr)
+		}
 	case 0xFF00 ..= 0xFF7F:
 		bus.io[addr - 0xFF00] = value
+		/* NOTE: hack for Blargg's tests */
+		if addr == 0xFF02 && value == 0x81 {
+			fmt.printf("%c", rune(bus.io[0x01]))
+			bus.io[0x02] = 0x00
+		}
 	case 0xFF80 ..= 0xFFFE:
 		bus.hram[addr - 0xFF80] = value
 	case 0xFFFF:
 		bus.ie = value
 	}
-	return
 }
 
 bus_read_u16 :: proc(bus: ^Bus, addr: u16) -> u16 {
-	low, high := bus_read_u8(bus, addr), bus_read_u8(bus, addr + 1)
-	return (u16(high) << 8) | u16(low)
+	low, high := bus_read(bus, addr), bus_read(bus, addr + 1)
+	return u16(high) << 8 | u16(low)
 }
 
 bus_write_u16 :: proc(bus: ^Bus, addr: u16, value: u16) {
 	low, high := u8(value), u8(value >> 8)
-	bus_write_u8(bus, addr, low)
-	bus_write_u8(bus, addr + 1, high)
+	bus_write(bus, addr, low)
+	bus_write(bus, addr + 1, high)
 }
