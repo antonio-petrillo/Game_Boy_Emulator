@@ -3,7 +3,7 @@ package main
 import "core:fmt"
 
 Bus :: struct {
-	cartridge: Cartridge,
+	cartridge: ^Cartridge,
 	vram: [0x2000]u8, // 0x8000 - 0x9FFF
 	wram: [0x2000]u8, // 0xC000 - 0xDFFF
 	oam:  [0xA0]u8,   // 0xFE00 - 0xFE9F
@@ -15,11 +15,11 @@ Bus :: struct {
 bus_read :: proc(bus: ^Bus, addr: u16) -> u8 {
 	switch addr {
 	case 0x0000 ..= 0x7FFF:
-		return cart_read(&bus.cartridge, addr)
+		return bus.cartridge->read_proc(addr)
 	case 0x8000 ..= 0x9FFF:
 		return bus.vram[addr - 0x8000]
 	case 0xA000 ..= 0xBFFF:
-		return cart_read(&bus.cartridge, addr)
+		return bus.cartridge->read_proc(addr)
 	case 0xC000 ..= 0xDFFF:
 		return bus.wram[addr - 0xC000]
 	case 0xE000 ..= 0xFDFF: // ECHO RAM
@@ -42,16 +42,17 @@ bus_read :: proc(bus: ^Bus, addr: u16) -> u8 {
 	case 0xFFFF:
 		return bus.ie
 	}
+	panic("Unknown addr for bus_read")
 }
 
 bus_write :: proc(bus: ^Bus, addr: u16, value: u8) {
 	switch addr {
 	case 0x0000 ..= 0x7FFF:
-		cart_write(&bus.cartridge, addr, value)
+		bus.cartridge->write_proc(addr, value)
 	case 0x8000 ..= 0x9FFF:
 		bus.vram[addr - 0x8000] = value
 	case 0xA000 ..= 0xBFFF:
-		cart_write(&bus.cartridge, addr, value)
+		bus.cartridge->write_proc(addr, value)
 	case 0xC000 ..= 0xDFFF:
 		bus.wram[addr - 0xC000] = value
 	case 0xE000 ..= 0xFDFF: // ECHO ram
