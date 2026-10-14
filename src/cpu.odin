@@ -2,26 +2,43 @@ package main
 
 import "core:log"
 
+Long_Registers :: enum u8 {
+	AF, BC, DE, HL,
+}
+
 when ODIN_ENDIAN == .Little {
-	CPU :: struct {
-		using _: struct #raw_union {
+
+	Registers :: enum u8 {
+		Flags, A, C, B, E, D, L, H,
+	}
+
+	__Registers :: struct #raw_union {
+			registers: [Registers]u8,
+			long_registers: [Long_Registers]u16,
 			using _: struct { Flags, A, C, B, E, D, L, H: u8 },
 			using _: struct { AF, BC, DE, HL: u16 },
-		},
-		sp, pc: u16,
-		bus: ^Bus,
-		t_cycles: u64,
 	}
+
 } else {
-	CPU :: struct {
-		using _: struct #raw_union {
-			using _: struct { A, Flags, B, C, D, E, H, L: u8 },
-			using _: struct { AF, BC, DE, HL: u16 },
-		},
-		sp, pc: u16,
-		bus: ^Bus,
-		t_cycles: u64,
+
+	Registers :: enum u8 {
+		A, Flags, B, C, D, E, H, L,
 	}
+
+	__Registers :: struct #raw_union {
+		registers: [Registers]u8,
+		long_registers: [Long_Registers]u16,
+		using _: struct { A, Flags, B, C, D, E, H, L: u8 },
+		using _: struct { AF, BC, DE, HL: u16 },
+	}
+
+}
+
+CPU :: struct {
+	using _: __Registers,
+	sp, pc: u16,
+	bus: ^Bus,
+	t_cycles: u64,
 }
 
 Flags :: enum u8 { Z, N, H, C }
