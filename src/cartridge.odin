@@ -1,7 +1,7 @@
 package main
 
 import "base:runtime"
-import "core:fmt"
+import "core:log"
 import "core:os"
 
 MBC_Kind :: enum(u8) {
@@ -55,7 +55,7 @@ cartridge_load :: proc(path: string, allocator := context.allocator) -> (_cart: 
 	}
 
 	if len(data) < 0x150 {
-		fmt.eprintfln("ROM size don't contain a valid header")
+		log.warn("ROM size don't contain a valid header")
 		return nil, .Invalid_Header
 	}
 
@@ -83,7 +83,7 @@ cartridge_load :: proc(path: string, allocator := context.allocator) -> (_cart: 
 		cart.write_proc = cart_write_mbc1
 
 	case:
-		fmt.eprintfln("Unsupported MBC kind (0x%02x) for now", value)
+		log.warnf("Unsupported MBC kind (0x%02x) for now", value)
 		return nil, .Unknown_MBC_Kind
 	}
 
@@ -101,12 +101,12 @@ cartridge_load :: proc(path: string, allocator := context.allocator) -> (_cart: 
 
 	ram_size := 0
 	switch data[0x149] {
-	case 0x00: ram_size = 0
-	case 0x01:       /* UNUSED */
-	case 0x02:       ram_size = 8   * runtime.Kilobyte
-	case 0x03:       ram_size = 32  * runtime.Kilobyte
-	case 0x04:       ram_size = 128 * runtime.Kilobyte
-	case 0x05:       ram_size = 64  * runtime.Kilobyte
+	case 0x00: ram_size = 0   * runtime.Kilobyte
+	case 0x01: /* UNUSED */
+	case 0x02: ram_size = 8   * runtime.Kilobyte
+	case 0x03: ram_size = 32  * runtime.Kilobyte
+	case 0x04: ram_size = 128 * runtime.Kilobyte
+	case 0x05: ram_size = 64  * runtime.Kilobyte
 	case:
 		return nil, .RAM_Unknown_Size
 	}

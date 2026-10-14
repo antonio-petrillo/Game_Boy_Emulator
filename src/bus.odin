@@ -1,5 +1,6 @@
 package main
 
+import "base:runtime"
 import "core:fmt"
 
 Bus :: struct {
@@ -42,7 +43,7 @@ bus_read :: proc(bus: ^Bus, addr: u16) -> u8 {
 	case 0xFFFF:
 		return bus.ie
 	}
-	panic("Unknown addr for bus_read")
+	panic("unreachable")
 }
 
 bus_write :: proc(bus: ^Bus, addr: u16, value: u8) {
@@ -74,6 +75,8 @@ bus_write :: proc(bus: ^Bus, addr: u16, value: u8) {
 		bus.hram[addr - 0xFF80] = value
 	case 0xFFFF:
 		bus.ie = value
+	case:
+		panic("unreachable")
 	}
 }
 
