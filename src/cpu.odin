@@ -21,7 +21,7 @@ Flags :: enum u8 {
 when ODIN_ENDIAN == .Little {
 
 	Registers :: enum u8 {
-		Flags, A, C, B, E, D, L, H,
+		flags, a, c, b, e, d, l, h,
 	}
 
 	__Registers :: struct #raw_union #packed {
@@ -38,7 +38,7 @@ when ODIN_ENDIAN == .Little {
 } else {
 
 	Registers :: enum u8 {
-		A, Flags, B, C, D, E, H, L,
+		a, flags, b, c, d, e, h, l,
 	}
 
 	__Registers :: struct #raw_union #packed {
