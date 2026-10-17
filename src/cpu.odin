@@ -195,32 +195,44 @@ execute :: proc(cpu: ^CPU) {
 	/*-------------------------------*
      | Instruction from 0x00 to 0x0F |
      *-------------------------------*/
-	case .NOP:
+	case .NOP: // 0x00
 		instr_t_cycles = 4
 
-	case .LD_BC_n16:
+	case .LD_BC_n16: // 0x01
 		cpu.bc = fetch_u16(cpu)
 		instr_t_cycles = 12
 
-	case .LD_BC_Indirect_A:
+	case .LD_BC_Indirect_A: // 0x02
 		bus_write(cpu.bus, cpu.bc, cpu.a)
 		instr_t_cycles = 8
 
-	case .INC_BC:
+	case .INC_BC: // 0x03
 		cpu.bc += 1
 		instr_t_cycles = 8
 
-	case .INC_B:
+	case .INC_B: // 0x04
 		increment(&cpu.flags, &cpu.b, .Inc)
 		instr_t_cycles = 4
 
-	case .DEC_B:
+	case .DEC_B: // 0x05
 		increment(&cpu.flags, &cpu.b, .Dec)
 		instr_t_cycles = 4
 
-	case .LD_B_n8:
+	case .LD_B_n8: // 0x06
 		cpu.b = fetch(cpu)
 		instr_t_cycles = 8
+
+	case .RLCA: // 0x07
+		carry: u8
+		if 0x80 & cpu.a != 0 {
+			carry: u8
+			cpu.flags -= { .Carry }
+		} else {
+			cpu.flags -= { .Carry }
+		}
+		cpu.a = (cpu.a << 1) | carry
+		cpu.flags -= { .Negative, .Zero, Half_Carry}
+
 
 
 	/*-------------------------------*
