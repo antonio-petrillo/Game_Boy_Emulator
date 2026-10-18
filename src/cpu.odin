@@ -105,6 +105,20 @@ add :: proc(arg1, arg2: u8, carry: bool = false) -> (result: u8, h, c: bool) {
 	return
 }
 
+add_hl_r16 :: proc(cpu: ^CPU, reg: u16) {
+	result: u16
+	half_carry, carry: bool
+
+	sum := u32(cpu.hl) + u32(reg)
+	cpu.hl = u16(sum)
+	half_carry = (cpu.hl & 0x0FFF) + (reg & 0x0FFF) > 0x0FFF
+	carry = sum > 0x0000FFFF
+
+	cpu.flags -= { .Negative }
+	if half_carry { cpu.flags -= { .Half_Carry } } else {  cpu.flags += { .Half_Carry } }
+	if carry { cpu.flags -= { .Carry } } else {  cpu.flags += { .Carry } }
+}
+
 alu :: proc(cpu: ^CPU, op: Alu_Op_Kind, arg: u8) {
 	result: u8
 	half_carry, carry: bool
@@ -225,19 +239,92 @@ execute :: proc(cpu: ^CPU) {
 	case .RLCA: // 0x07
 		carry: u8
 		if 0x80 & cpu.a != 0 {
-			carry: u8
-			cpu.flags -= { .Carry }
+			carry = 0x01
+			cpu.flags += { .Carry }
 		} else {
 			cpu.flags -= { .Carry }
 		}
 		cpu.a = (cpu.a << 1) | carry
-		cpu.flags -= { .Negative, .Zero, Half_Carry}
+		cpu.flags -= { .Negative, .Zero, .Half_Carry}
+		instr_t_cycles = 4
 
+	case .LD_a16_Indirect_SP: // 0x08
+		a16 := fetch_u16(cpu)
+		bus_write_u16(cpu.bus, a16, cpu.sp)
+		instr_t_cycles = 20
+
+	case .ADD_HL_BC: // 0x09
+		half_carry, carry: bool
+		add_hl_r16(cpu, cpu.bc)
+		instr_t_cycles = 8
+
+	case .LD_A_BC_Indirect: // 0x0A
+		cpu.a = bus_read(cpu.bus, cpu.bc)
+		instr_t_cycles = 8
+
+	case .DEC_BC: // 0x0B
+		cpu.bc -= 1
+		instr_t_cycles = 8
+
+	case .INC_C: // 0x0C
+		increment(&cpu.flags, &cpu.c, .Inc)
+		instr_t_cycles = 4
+
+	case .DEC_C: // 0x0D
+		increment(&cpu.flags, &cpu.c, .Dec)
+		instr_t_cycles = 4
+
+	case .LD_C_n8: // 0x0E
+		cpu.c = fetch(cpu)
+		instr_t_cycles = 8
+
+	case .RRCA: // 0x0F
+		carry: u8
+		if 0x01 & cpu.a != 0 {
+			carry = 0x80
+			cpu.flags += { .Carry }
+		} else {
+			cpu.flags -= { .Carry }
+		}
+		cpu.a = (cpu.a >> 1) | carry
+		cpu.flags -= { .Negative, .Zero, .Half_Carry}
+		instr_t_cycles = 4
 
 
 	/*-------------------------------*
      | Instruction from 0x10 to 0x1F |
      *-------------------------------*/
+
+	case .STOP_n8: // 0x10
+		panic("Not implemented yet")
+
+	case .LD_DE_n16: // 0x11
+		cpu.de = fetch_u16(cpu)
+		instr_t_cycles = 12
+
+	case .LD_DE_n16: // 0x12
+		bus_write(cpu.bus, cpu.de, cpu.a)
+		instr_t_cycles = 8
+
+	case .INC_DE: // 0x13
+		cpu.de += 1
+		instr_t_cycles = 8
+
+	case .INC_D: // 0x14
+		increment(&cpu.flags, &cpu.d, .Inc)
+		instr_t_cycles = 4
+
+	case .DEC_D: // 0x15
+		increment(&cpu.flags, &cpu.d, .Inc)
+		instr_t_cycles = 4
+
+	case .LD_D_n8: // 0x16
+		cpu.d = fetch(cpu)
+		instr_t_cycles = 8
+
+	case .RLA: // 0x17
+		panic("not implemented yet")
+
 	/*-------------------------------*
      | Instruction from 0x20 to 0x2F |
      *-------------------------------*/
